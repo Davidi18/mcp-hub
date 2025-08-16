@@ -27,7 +27,32 @@ async function rpc(upstreamUrl, body) {
     },
     body: JSON.stringify(body),
   });
+  
   if (!res.ok) throw new Error(`Upstream HTTP ${res.status}`);
+  
+  const contentType = res.headers.get('content-type') || '';
+  
+  // Handle SSE responses
+  if (contentType.includes('text/event-stream')) {
+    const text = await res.text();
+    const lines = text.split('\n');
+    
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonData = line.substring(6); // Remove "data: " prefix
+        try {
+          return JSON.parse(jsonData);
+        } catch (e) {
+          // Skip invalid JSON lines
+          continue;
+        }
+      }
+    }
+    
+    throw new Error('No valid JSON data found in SSE response');
+  }
+  
+  // Handle regular JSON responses
   return await res.json();
 }
 

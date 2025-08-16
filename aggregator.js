@@ -1,12 +1,10 @@
 // Aggregator: URL אחד לכל לקוח: /clientN/mcp
 // מאחד tools/list משני upstreams (WP+DFS) ומנתב tools/call לפי prefix: wp:/dfs:
-
 import http from 'http';
 import { URL } from 'url';
 
 const PORT = 9090;
 const PROXY_TOKEN = process.env.PROXY_TOKEN || '';
-const UPSTREAM_BASE = process.env.UPSTREAM_BASE || 'http://127.0.0.1:9091';
 
 function authOk(req) {
   const hdr = req.headers['authorization'];
@@ -41,45 +39,46 @@ function mergeTools(wpList, dfsList) {
 
 function chooseUpstreamByTool(name, clientN) {
   if (name?.startsWith('wp/')) {
-    return { url: `http://127.0.0.1:9091/wp-client${clientN}/mcp`, rewritten: name.slice(3) };
+    return { url: `http://127.0.0.1:9091/mcp`, rewritten: name.slice(3) };
   }
   if (name?.startsWith('dfs/')) {
-    return { url: `http://127.0.0.1:9092/dataforseo/mcp`, rewritten: name.slice(4) };
+    return { url: `http://127.0.0.1:9092/mcp`, rewritten: name.slice(4) };
   }
-  return { url: `http://127.0.0.1:9091/wp-client${clientN}/mcp`, rewritten: name };
+  // ברירת מחדל: WP
+  return { url: `http://127.0.0.1:9091/mcp`, rewritten: name };
 }
 
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://x');
     const clientN = clientFromPath(pathname);
-
+    
     if (!clientN) {
       res.writeHead(404, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({error:'not_found'}));
     }
+    
     if (!authOk(req)) {
       res.writeHead(401, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({error:'unauthorized'}));
     }
-
+    
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
-
     const method = body?.method;
-
+    
     // tools/list -> מאחד משני upstreams
     if (method === 'tools/list') {
       const [wpList, dfsList] = await Promise.all([
-        rpc(`${UPSTREAM_BASE}/wp-client${clientN}/mcp`, body),
-        rpc(`${UPSTREAM_BASE}/dataforseo/mcp`, body)
+        rpc(`http://127.0.0.1:9091/mcp`, body),
+        rpc(`http://127.0.0.1:9092/mcp`, body)
       ]);
       const merged = mergeTools(wpList, dfsList);
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(merged));
     }
-
+    
     // tools/call -> ניתוב לפי prefix (wp/ או dfs/)
     if (method === 'tools/call') {
       const toolName = body?.params?.name;
@@ -89,12 +88,12 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(out));
     }
-
+    
     // ברירת מחדל: העברה ל-WP (או תוסיף כאן תמיכה ב-resources/prompts אם אתה משתמש בהם)
-    const out = await rpc(`${UPSTREAM_BASE}/wp-client${clientN}/mcp`, body);
+    const out = await rpc(`http://127.0.0.1:9091/mcp`, body);
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify(out));
-
+    
   } catch (e) {
     res.writeHead(500, {'Content-Type':'application/json'});
     return res.end(JSON.stringify({error: String(e?.message || e)}));

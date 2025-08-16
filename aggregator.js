@@ -41,13 +41,12 @@ function mergeTools(wpList, dfsList) {
 
 function chooseUpstreamByTool(name, clientN) {
   if (name?.startsWith('wp/')) {
-    return { url: `${UPSTREAM_BASE}/wp-client${clientN}/mcp`, rewritten: name.slice(3) };
+    return { url: `http://127.0.0.1:9091/wp-client${clientN}/mcp`, rewritten: name.slice(3) };
   }
   if (name?.startsWith('dfs/')) {
-    return { url: `${UPSTREAM_BASE}/dataforseo/mcp`, rewritten: name.slice(4) };
+    return { url: `http://127.0.0.1:9092/dataforseo/mcp`, rewritten: name.slice(4) };
   }
-  // ברירת מחדל: WP
-  return { url: `${UPSTREAM_BASE}/wp-client${clientN}/mcp`, rewritten: name };
+  return { url: `http://127.0.0.1:9091/wp-client${clientN}/mcp`, rewritten: name };
 }
 
 const server = http.createServer(async (req, res) => {

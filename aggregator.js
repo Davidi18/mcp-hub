@@ -20,7 +20,11 @@ function clientFromPath(pathname) {
 async function rpc(upstreamUrl, body) {
   const res = await fetch(upstreamUrl, {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      'User-Agent': 'MCP-Hub-Aggregator/1.0'
+    },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Upstream HTTP ${res.status}`);

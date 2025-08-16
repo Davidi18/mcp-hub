@@ -3,9 +3,9 @@ FROM node:20-alpine
 RUN apk add --no-cache bash gettext
 
 # כלים גלובליים
-RUN npm i -g @tbxark/mcp-proxy@latest \
-              @automattic/mcp-wordpress-remote@latest \
-              dataforseo-mcp-server@latest
+RUN npm i -g mcp-proxy@latest \
+             @automattic/mcp-wordpress-remote@latest \
+             dataforseo-mcp-server@latest
 
 WORKDIR /app
 COPY entrypoint.sh /app/entrypoint.sh

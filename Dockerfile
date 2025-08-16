@@ -2,14 +2,15 @@ FROM node:20-alpine
 
 RUN apk add --no-cache bash gettext
 
-# CLI גלובליים: הפרוקסי המאגד + שרתי משנה
+# כלים גלובליים
 RUN npm i -g @tbxark/mcp-proxy@latest \
               @automattic/mcp-wordpress-remote@latest \
               dataforseo-mcp-server@latest
 
 WORKDIR /app
 COPY entrypoint.sh /app/entrypoint.sh
-COPY config.template.json /app/config.template.json
+COPY aggregator.js /app/aggregator.js
+COPY upstreams.template.json /app/upstreams.template.json
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 9090

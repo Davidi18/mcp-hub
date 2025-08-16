@@ -12,7 +12,7 @@ if [ -n "${WP1_URL:-}" ]; then
     WP_API_URL="$WP1_URL" \
     WP_API_USERNAME="$WP1_USER" \
     WP_API_PASSWORD="$WP1_APP_PASS" \
-    mcp-proxy --port 9091 --host 0.0.0.0 --streamEndpoint /wp-client1/mcp \
+    mcp-proxy --port 9091 --host 0.0.0.0 --stateless \
         npx @automattic/mcp-wordpress-remote &
     echo "✅ WordPress MCP started on port 9091"
 else
@@ -24,7 +24,7 @@ if [ -n "${DFS_USER:-}" ]; then
     echo "📊 Starting DataForSEO MCP..."
     DATAFORSEO_USERNAME="$DFS_USER" \
     DATAFORSEO_PASSWORD="$DFS_PASS" \
-    mcp-proxy --port 9092 --host 0.0.0.0 --streamEndpoint /dataforseo/mcp \
+    mcp-proxy --port 9092 --host 0.0.0.0 --stateless \
         npx dataforseo-mcp-server &
     echo "✅ DataForSEO MCP started on port 9092"
 else

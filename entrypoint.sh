@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🚀 Starting MCP Hub v2.0..."
+echo "🚀 Starting MCP Hub..."
 echo ""
 
-# Environment check - show all configured clients
+# Show configured clients
 echo "📋 Client Configuration:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -18,18 +18,14 @@ for i in {1..15}; do
   if [ -n "${!wp_url_var:-}" ] && [ -n "${!wp_user_var:-}" ] && [ -n "${!wp_pass_var:-}" ]; then
     CLIENT_COUNT=$((CLIENT_COUNT + 1))
     client_name="${!client_name_var:-client${i}}"
-    wp_user="${!wp_user_var}"
     
     # Normalize company name for endpoint
     normalized_name=$(echo "$client_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
     
     echo "  ✅ Client ${i}: ${client_name}"
     echo "     ├─ WordPress: ${!wp_url_var}"
-    echo "     ├─ User: ${wp_user}"
-    echo "     └─ Endpoints:"
-    echo "        • JSON-RPC: /${normalized_name}/mcp"
-    echo "        • SSE: /sse?client=${normalized_name}"
-    echo "        • SSE (alt): /${normalized_name}/sse"
+    echo "     ├─ User: ${!wp_user_var}"
+    echo "     └─ Endpoint: /${normalized_name}/mcp"
     echo ""
   fi
 done
@@ -58,14 +54,14 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Start WordPress Dynamic Proxy on port 9091
-echo "🔧 Starting WordPress Dynamic Proxy (port 9091)..."
+# Start WordPress Dynamic Proxy (port 9091)
+echo "🔧 Starting WordPress Proxy (port 9091)..."
 node /app/wp-dynamic-proxy.js &
 WP_PROXY_PID=$!
-echo "   ✅ WordPress Proxy started (PID: $WP_PROXY_PID)"
+echo "   ✅ Started (PID: $WP_PROXY_PID)"
 echo ""
 
-# Start DataForSEO MCP on port 9092
+# Start DataForSEO MCP (port 9092)
 if [ -n "${DFS_USER:-}" ] && [ -n "${DFS_PASS:-}" ]; then
   echo "🔧 Starting DataForSEO MCP (port 9092)..."
   DATAFORSEO_USERNAME="$DFS_USER" \
@@ -73,34 +69,25 @@ if [ -n "${DFS_USER:-}" ] && [ -n "${DFS_PASS:-}" ]; then
   mcp-proxy --port 9092 --host 0.0.0.0 --stateless \
       npx dataforseo-mcp-server &
   DFS_PROXY_PID=$!
-  echo "   ✅ DataForSEO MCP started (PID: $DFS_PROXY_PID)"
+  echo "   ✅ Started (PID: $DFS_PROXY_PID)"
   echo ""
 fi
 
-# Wait for services to initialize
+# Wait for services
 echo "⏳ Waiting for upstream services..."
 sleep 5
 echo ""
 
-# Start SSE Transport on port 9093
-echo "🔌 Starting Dynamic SSE Transport (port 9093)..."
-node /app/sse-transport.js &
-SSE_TRANSPORT_PID=$!
-echo "   ✅ SSE Transport started (PID: $SSE_TRANSPORT_PID)"
-echo "   📍 Universal endpoint: /sse?client=<name>"
-echo ""
-
-# Start main aggregator on port 9090
+# Start main aggregator (port 9090)
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🎯 Starting Main Aggregator (port 9090)..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "✅ MCP Hub v2.0 with:"
+echo "✅ Features:"
 echo "   • Rate Limiting"
 echo "   • Smart Caching"
 echo "   • Analytics Logging"
-echo "   • Dynamic SSE Transport"
+echo "   • Multi-tenant Support"
 echo ""
 
-# Run aggregator-v3.js
-exec node /app/aggregator-v3.js
+exec node /app/aggregator.js

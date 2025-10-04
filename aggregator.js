@@ -23,12 +23,12 @@ function buildClientMapping() {
         const normalizedName = clientName.toLowerCase().replace(/[^a-z0-9]/g, '-');
         mapping[normalizedName] = i.toString();
         reverseMapping[i.toString()] = normalizedName;
-        console.log(`📋 Client ${i}: ${clientName} -> /${normalizedName}/mcp`);
+        console.log(`📋 Client ${i}: ${clientName} -> /${normalizedName}/mcp (${wpUrl})`);
       } else {
         // אם אין שם חברה, השאר את הפורמט הישן
         mapping[`client${i}`] = i.toString();
         reverseMapping[i.toString()] = `client${i}`;
-        console.log(`📋 Client ${i}: Default -> /client${i}/mcp`);
+        console.log(`📋 Client ${i}: Default -> /client${i}/mcp (${wpUrl})`);
       }
     }
   }
@@ -40,7 +40,7 @@ const { mapping: clientMapping, reverseMapping } = buildClientMapping();
 
 function authOk(req) {
   const hdr = req.headers['authorization'];
-  return PROXY_TOKEN ? hdr === PROXY_TOKEN : true; // אם לא הוגדר טוקן – פתוח (אפשר לשנות ל-required)
+  return PROXY_TOKEN ? hdr === PROXY_TOKEN : true;
 }
 
 function clientFromPath(pathname) {
@@ -63,13 +63,19 @@ function clientFromPath(pathname) {
   return numberMatch ? numberMatch[1] : null;
 }
 
-async function rpc(upstreamUrl, body) {
-  const res = await fetch(upstreamUrl, {
+// ✨ FIX: העברת מספר הלקוח ל-upstream
+async function rpc(upstreamUrl, body, clientN) {
+  // הוספת מספר הלקוח ל-URL
+  const urlWithClient = clientN ? `${upstreamUrl}?client=${clientN}` : upstreamUrl;
+  
+  const res = await fetch(urlWithClient, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
-      'User-Agent': 'MCP-Hub-Aggregator/1.0'
+      'User-Agent': 'MCP-Hub-Aggregator/1.0',
+      // ✨ גם שליחה ב-header לגיבוי
+      'X-Client-Number': clientN || '1'
     },
     body: JSON.stringify(body),
   });
@@ -85,11 +91,10 @@ async function rpc(upstreamUrl, body) {
     
     for (const line of lines) {
       if (line.startsWith('data: ')) {
-        const jsonData = line.substring(6); // Remove "data: " prefix
+        const jsonData = line.substring(6);
         try {
           return JSON.parse(jsonData);
         } catch (e) {
-          // Skip invalid JSON lines
           continue;
         }
       }
@@ -98,7 +103,6 @@ async function rpc(upstreamUrl, body) {
     throw new Error('No valid JSON data found in SSE response');
   }
   
-  // Handle regular JSON responses
   return await res.json();
 }
 
@@ -149,8 +153,8 @@ const server = http.createServer(async (req, res) => {
     // tools/list -> מאחד משני upstreams
     if (method === 'tools/list') {
       const [wpList, dfsList] = await Promise.all([
-        rpc(`http://127.0.0.1:9091/mcp`, body),
-        rpc(`http://127.0.0.1:9092/mcp`, body)
+        rpc(`http://127.0.0.1:9091/mcp`, body, clientN),  // ✨ העברת clientN
+        rpc(`http://127.0.0.1:9092/mcp`, body, clientN)   // ✨ העברת clientN
       ]);
       const merged = mergeTools(wpList, dfsList);
       res.writeHead(200, {'Content-Type':'application/json'});
@@ -162,13 +166,13 @@ const server = http.createServer(async (req, res) => {
       const toolName = body?.params?.name;
       const { url, rewritten } = chooseUpstreamByTool(toolName, clientN);
       const forwardBody = { ...body, params: { ...body.params, name: rewritten } };
-      const out = await rpc(url, forwardBody);
+      const out = await rpc(url, forwardBody, clientN);  // ✨ העברת clientN
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(out));
     }
     
-    // ברירת מחדל: העברה ל-WP (או תוסיף כאן תמיכה ב-resources/prompts אם אתה משתמש בהם)
-    const out = await rpc(`http://127.0.0.1:9091/mcp`, body);
+    // ברירת מחדל: העברה ל-WP
+    const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientN);  // ✨ העברת clientN
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify(out));
     
@@ -182,6 +186,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Aggregator listening on :${PORT}`);
   console.log(`📋 Available endpoints:`);
   Object.keys(clientMapping).forEach(name => {
-    console.log(`   /${name}/mcp`);
+    const clientNum = clientMapping[name];
+    const wpUrl = process.env[`WP${clientNum}_URL`];
+    console.log(`   /${name}/mcp -> Client ${clientNum} (${wpUrl || 'not configured'})`);
   });
 });

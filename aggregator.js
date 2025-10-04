@@ -103,7 +103,8 @@ async function rpc(upstreamUrl, body, clientId) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': 'MCP-Hub',
+        'Accept': 'application/json',
+        'User-Agent': 'MCP-Hub/3.0',
         'X-Client-Number': client.id,
         'X-Client-Name': client.name
       },
@@ -111,7 +112,15 @@ async function rpc(upstreamUrl, body, clientId) {
     });
     
     if (!res.ok) {
-      throw new Error(`Upstream HTTP ${res.status}`);
+      const errorText = await res.text().catch(() => '');
+      logger.log('ERROR', `Upstream error ${res.status}`, {
+        url: upstreamUrl,
+        status: res.status,
+        statusText: res.statusText,
+        clientId,
+        errorBody: errorText.substring(0, 200)
+      });
+      throw new Error(`Upstream HTTP ${res.status}: ${errorText.substring(0, 100)}`);
     }
     
     const duration = Date.now() - startTime;
@@ -201,6 +210,41 @@ const server = http.createServer(async (req, res) => {
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(health, null, 2));
+    }
+    
+    // Debug endpoint to check upstream services
+    if (pathname === '/debug/upstreams') {
+      if (!authOk(req)) {
+        res.writeHead(401, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({error:'unauthorized'}));
+      }
+      
+      const checks = {};
+      
+      // Check WordPress proxy
+      try {
+        const wpRes = await fetch('http://127.0.0.1:9091/health');
+        checks.wordpress = {
+          status: wpRes.ok ? 'ok' : 'error',
+          code: wpRes.status
+        };
+      } catch (e) {
+        checks.wordpress = { status: 'down', error: e.message };
+      }
+      
+      // Check DataForSEO MCP
+      try {
+        const dfsRes = await fetch('http://127.0.0.1:9092/health');
+        checks.dataforseo = {
+          status: dfsRes.ok ? 'ok' : 'error',
+          code: dfsRes.status
+        };
+      } catch (e) {
+        checks.dataforseo = { status: 'down', error: e.message };
+      }
+      
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify(checks, null, 2));
     }
     
     // Analytics endpoint (requires auth)
@@ -323,6 +367,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
           <div class="endpoint">
             <h2>📊 Management Endpoints</h2>
             <p><code>GET /health</code> - Health check (public)</p>
+            <p><code>GET /debug/upstreams</code> - Check upstream services (requires auth)</p>
             <p><code>GET /clients</code> - List all clients ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
             <p><code>GET /stats</code> - Statistics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
             <p><code>GET /analytics</code> - Analytics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
@@ -412,16 +457,28 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
     
     // Handle tools/list
     if (method === 'tools/list') {
-      const [wpList, dfsList] = await Promise.all([
-        rpc(`http://127.0.0.1:9091/mcp`, body, clientId),
-        rpc(`http://127.0.0.1:9092/mcp`, body, clientId)
-      ]);
-      
-      const merged = mergeTools(wpList, dfsList);
-      logger.trackRequest({ clientId, method: 'tools/list', duration: Date.now() - requestStart, success: true });
-      
-      res.writeHead(200, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify(merged));
+      try {
+        const [wpList, dfsList] = await Promise.all([
+          rpc(`http://127.0.0.1:9091/mcp`, body, clientId),
+          rpc(`http://127.0.0.1:9092/mcp`, body, clientId)
+        ]);
+        
+        const merged = mergeTools(wpList, dfsList);
+        logger.trackRequest({ clientId, method: 'tools/list', duration: Date.now() - requestStart, success: true });
+        
+        res.writeHead(200, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify(merged));
+      } catch (error) {
+        logger.log('ERROR', `tools/list failed: ${error.message}`, { clientId });
+        res.writeHead(500, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: error.message
+          }
+        }));
+      }
     }
     
     // Handle tools/call with rate limiting and caching

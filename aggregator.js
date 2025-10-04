@@ -286,7 +286,7 @@ const server = http.createServer(async (req, res) => {
             <h3>Usage:</h3>
             <pre>curl -X POST https://mcp.strudel.marketing/mcp \\
   -H "X-Client-ID: strudel" \\
-  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN" \\
+  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN"' : ''} \\
   ' : ''}-H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","method":"tools/list","id":"1"}'</pre>
           </div>

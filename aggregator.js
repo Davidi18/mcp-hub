@@ -1,5 +1,5 @@
 // MCP Hub - Unified WordPress & DataForSEO Aggregator
-// With Rate Limiting, Smart Caching, and Analytics
+// Single endpoint with client identification via header or query parameter
 
 import http from 'http';
 import { URL } from 'url';
@@ -23,61 +23,78 @@ logger.log('INFO', 'MCP Hub starting', {
 
 // Build client mapping from environment variables
 function buildClientMapping() {
-  const mapping = {};
-  const reverseMapping = {};
+  const clients = {};
   
   for (let i = 1; i <= 15; i++) {
     const wpUrl = process.env[`WP${i}_URL`];
-    if (wpUrl) {
-      const clientName = process.env[`CLIENT${i}_NAME`];
+    const wpUser = process.env[`WP${i}_USER`];
+    const wpPass = process.env[`WP${i}_APP_PASS`];
+    
+    if (wpUrl && wpUser && wpPass) {
+      const clientName = process.env[`CLIENT${i}_NAME`] || `client${i}`;
+      const normalizedName = clientName.toLowerCase().replace(/[^a-z0-9]/g, '-');
       
-      if (clientName) {
-        const normalizedName = clientName.toLowerCase().replace(/[^a-z0-9]/g, '-');
-        mapping[normalizedName] = i.toString();
-        reverseMapping[i.toString()] = normalizedName;
-        logger.log('INFO', `Client ${i} registered`, {
-          name: clientName,
-          endpoint: `/${normalizedName}/mcp`,
-          wpUrl
-        });
-      } else {
-        mapping[`client${i}`] = i.toString();
-        reverseMapping[i.toString()] = `client${i}`;
-        logger.log('INFO', `Client ${i} registered (default name)`, {
-          endpoint: `/client${i}/mcp`,
-          wpUrl
-        });
-      }
+      clients[normalizedName] = {
+        id: i.toString(),
+        name: clientName,
+        wpUrl,
+        wpUser,
+        wpPass
+      };
+      
+      // Also map by number for backward compatibility
+      clients[i.toString()] = clients[normalizedName];
+      
+      logger.log('INFO', `Client registered: ${clientName}`, {
+        id: normalizedName,
+        wpUrl
+      });
     }
   }
   
-  return { mapping, reverseMapping };
+  return clients;
 }
 
-const { mapping: clientMapping, reverseMapping } = buildClientMapping();
+const clients = buildClientMapping();
+
+// Extract client ID from request (header or query parameter)
+function getClientId(req, url) {
+  // Priority 1: X-Client-ID header
+  const headerClient = req.headers['x-client-id'] || req.headers['x-client'];
+  if (headerClient) {
+    return headerClient.toLowerCase().trim();
+  }
+  
+  // Priority 2: ?client= query parameter
+  const queryClient = url.searchParams.get('client');
+  if (queryClient) {
+    return queryClient.toLowerCase().trim();
+  }
+  
+  // Priority 3: Authorization header with client prefix (e.g., "Bearer client1:token")
+  const auth = req.headers['authorization'];
+  if (auth && auth.includes(':')) {
+    const clientPart = auth.split(':')[0].replace(/^Bearer\s+/i, '');
+    return clientPart.toLowerCase().trim();
+  }
+  
+  return null;
+}
 
 function authOk(req) {
   const hdr = req.headers['authorization'];
-  return PROXY_TOKEN ? hdr === PROXY_TOKEN : true;
+  return PROXY_TOKEN ? hdr === PROXY_TOKEN || hdr === `Bearer ${PROXY_TOKEN}` : true;
 }
 
-function clientFromPath(pathname) {
-  const companyMatch = pathname.match(/^\/([a-z0-9-]+)\/mcp$/);
-  if (companyMatch) {
-    const companyName = companyMatch[1];
-    const clientNumber = clientMapping[companyName];
-    if (clientNumber) {
-      return clientNumber;
-    }
+async function rpc(upstreamUrl, body, clientId) {
+  const startTime = Date.now();
+  const client = clients[clientId];
+  
+  if (!client) {
+    throw new Error(`Unknown client: ${clientId}`);
   }
   
-  const numberMatch = pathname.match(/^\/client(\d{1,2})\/mcp$/);
-  return numberMatch ? numberMatch[1] : null;
-}
-
-async function rpc(upstreamUrl, body, clientN) {
-  const startTime = Date.now();
-  const urlWithClient = clientN ? `${upstreamUrl}?client=${clientN}` : upstreamUrl;
+  const urlWithClient = `${upstreamUrl}?client=${client.id}`;
   
   try {
     const res = await fetch(urlWithClient, {
@@ -85,7 +102,8 @@ async function rpc(upstreamUrl, body, clientN) {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'MCP-Hub',
-        'X-Client-Number': clientN || '1'
+        'X-Client-Number': client.id,
+        'X-Client-Name': client.name
       },
       body: JSON.stringify(body),
     });
@@ -97,7 +115,7 @@ async function rpc(upstreamUrl, body, clientN) {
     const duration = Date.now() - startTime;
     logger.trackPerformance('upstream_rpc', duration, {
       upstreamUrl,
-      clientN,
+      clientId,
       method: body.method
     });
     
@@ -106,7 +124,7 @@ async function rpc(upstreamUrl, body, clientN) {
     logger.trackError(error, {
       operation: 'upstream_rpc',
       upstreamUrl,
-      clientN,
+      clientId,
       method: body.method
     });
     throw error;
@@ -154,7 +172,8 @@ const server = http.createServer(async (req, res) => {
   const requestStart = Date.now();
   
   try {
-    const { pathname } = new URL(req.url, 'http://x');
+    const url = new URL(req.url, 'http://x');
+    const { pathname } = url;
     
     // Health check endpoint
     if (pathname === '/health') {
@@ -162,12 +181,14 @@ const server = http.createServer(async (req, res) => {
         status: 'healthy',
         version: '3.0.0',
         uptime: process.uptime(),
-        clients: Object.keys(clientMapping).length,
-        endpoints: Object.keys(clientMapping).map(name => `/${name}/mcp`),
+        endpoint: '/mcp',
+        clientIdentification: ['X-Client-ID header', 'client query parameter'],
+        registeredClients: Object.keys(clients).filter(k => !k.match(/^\d+$/)), // Only named clients
         features: {
           rateLimiting: true,
           caching: true,
-          analytics: true
+          analytics: true,
+          multiClient: true
         },
         stats: {
           cache: cacheManager.getStats(),
@@ -175,7 +196,7 @@ const server = http.createServer(async (req, res) => {
         }
       };
       
-      res.writeHead(200, {'Content-Type':'application/json'});
+      res.writeHead(200, {'Content-Type':'application/json'})
       return res.end(JSON.stringify(health, null, 2));
     }
     
@@ -186,26 +207,25 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({error:'unauthorized'}));
       }
       
-      const minutes = parseInt(new URL(req.url, 'http://x').searchParams.get('minutes') || '60');
+      const minutes = parseInt(url.searchParams.get('minutes') || '60');
       const analytics = logger.getAnalytics(minutes);
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(analytics, null, 2));
     }
     
-    // Per-client stats
-    if (pathname.match(/^\/([a-z0-9-]+)\/stats$/)) {
+    // Stats endpoint with optional client filter
+    if (pathname === '/stats') {
       if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
         return res.end(JSON.stringify({error:'unauthorized'}));
       }
       
-      const clientName = pathname.match(/^\/([a-z0-9-]+)\/stats$/)[1];
-      const clientN = clientMapping[clientName] || clientName.replace('client', '');
+      const clientId = url.searchParams.get('client');
       
       const stats = {
-        rateLimit: rateLimiter.getStats(clientN),
-        cache: cacheManager.getStats(clientN),
+        rateLimit: clientId ? rateLimiter.getStats(clientId) : rateLimiter.getStats(),
+        cache: clientId ? cacheManager.getStats(clientId) : cacheManager.getStats(),
         analytics: logger.getAnalytics(60)
       };
       
@@ -213,8 +233,29 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(stats, null, 2));
     }
     
+    // Clients list endpoint
+    if (pathname === '/clients') {
+      if (!authOk(req)) {
+        res.writeHead(401, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({error:'unauthorized'}));
+      }
+      
+      const clientList = Object.entries(clients)
+        .filter(([key]) => !key.match(/^\d+$/)) // Filter out numeric keys
+        .map(([key, client]) => ({
+          id: key,
+          name: client.name,
+          wpUrl: client.wpUrl
+        }));
+      
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({ clients: clientList }, null, 2));
+    }
+    
     // Documentation page
     if (pathname === '/' || pathname === '/docs') {
+      const clientList = Object.keys(clients).filter(k => !k.match(/^\d+$/)).join(', ');
+      
       res.writeHead(200, {'Content-Type':'text/html'});
       return res.end(`
         <!DOCTYPE html>
@@ -224,61 +265,113 @@ const server = http.createServer(async (req, res) => {
           <title>MCP Hub</title>
           <style>
             body { font-family: system-ui; max-width: 900px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
-            .feature { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; margin: 20px 0; border-radius: 8px; }
-            .endpoint { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; margin: 20px 0; border-radius: 12px; }
+            .endpoint { background: white; padding: 25px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            code { background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 14px; }
+            pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 8px; overflow-x: auto; }
             .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; background: #10b981; color: white; }
-            code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+            h1 { margin: 0; }
+            h2 { color: #1e293b; margin-top: 0; }
           </style>
         </head>
         <body>
-          <h1>MCP Hub</h1>
-          <div class="feature">
-            <h2>Features</h2>
+          <div class="hero">
+            <h1>MCP Hub <span class="badge">Single Endpoint</span></h1>
+            <p style="font-size: 18px; margin: 10px 0 0 0;">One endpoint, multiple clients. Secure, scalable, simple.</p>
+          </div>
+          
+          <div class="endpoint">
+            <h2>📍 Main Endpoint</h2>
+            <code>POST /mcp</code>
+            <p>Single unified endpoint for all MCP operations</p>
+            
+            <h3>Client Identification (choose one):</h3>
+            
+            <h4>Option 1: Header (Recommended)</h4>
+            <pre>POST /mcp
+X-Client-ID: strudel
+Content-Type: application/json
+
+{ "jsonrpc": "2.0", "method": "initialize", "id": "1" }</pre>
+            
+            <h4>Option 2: Query Parameter</h4>
+            <pre>POST /mcp?client=strudel
+Content-Type: application/json
+
+{ "jsonrpc": "2.0", "method": "initialize", "id": "1" }</pre>
+            
+            <h4>Option 3: Combined Auth Header</h4>
+            <pre>POST /mcp
+Authorization: Bearer strudel:your-token-here
+Content-Type: application/json
+
+{ "jsonrpc": "2.0", "method": "initialize", "id": "1" }</pre>
+          </div>
+          
+          <div class="endpoint">
+            <h2>✨ Features</h2>
             <ul>
-              <li>✅ Rate Limiting: Per-client and per-tool limits</li>
-              <li>✅ Smart Caching: Saves up to 80% on DataForSEO costs</li>
-              <li>✅ Analytics: Real-time usage tracking</li>
-              <li>✅ Multi-tenant: Support for up to 15 WordPress sites</li>
+              <li>✅ Single endpoint - no per-client URLs</li>
+              <li>✅ Flexible client identification (header/query/auth)</li>
+              <li>✅ Rate Limiting per client</li>
+              <li>✅ Smart Caching (saves 80% on DataForSEO costs)</li>
+              <li>✅ Real-time Analytics</li>
+              <li>✅ Multi-tenant support (up to 15 clients)</li>
             </ul>
           </div>
+          
           <div class="endpoint">
-            <h2>Client Endpoints</h2>
-            <ul>
-              ${Object.keys(clientMapping).map(name => `<li><code>/${name}/mcp</code></li>`).join('')}
-            </ul>
+            <h2>🔐 Registered Clients</h2>
+            <p><code>${clientList}</code></p>
           </div>
+          
           <div class="endpoint">
-            <h3>GET /health</h3>
-            <p>Health check with stats</p>
-          </div>
-          <div class="endpoint">
-            <h3>GET /analytics?minutes=60</h3>
-            <p>Analytics dashboard (requires auth)</p>
-          </div>
-          <div class="endpoint">
-            <h3>GET /{client}/stats</h3>
-            <p>Per-client statistics (requires auth)</p>
+            <h2>📊 Management Endpoints</h2>
+            <p><code>GET /health</code> - Health check with stats</p>
+            <p><code>GET /clients</code> - List all registered clients (requires auth)</p>
+            <p><code>GET /stats?client=strudel</code> - Per-client statistics (requires auth)</p>
+            <p><code>GET /analytics?minutes=60</code> - Analytics dashboard (requires auth)</p>
           </div>
         </body>
         </html>
       `);
     }
     
-    // Extract client from path
-    const clientN = clientFromPath(pathname);
-    
-    if (!clientN) {
+    // Main MCP endpoint
+    if (pathname !== '/mcp') {
       res.writeHead(404, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
-        error: 'not_found', 
-        availableClients: Object.keys(clientMapping)
+        error: 'not_found',
+        message: 'Use POST /mcp with X-Client-ID header or ?client= parameter',
+        availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
+      }));
+    }
+    
+    // Extract client ID
+    const clientId = getClientId(req, url);
+    
+    if (!clientId) {
+      res.writeHead(400, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({
+        error: 'missing_client',
+        message: 'Client identification required. Use X-Client-ID header, ?client= parameter, or Authorization header',
+        availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
+      }));
+    }
+    
+    if (!clients[clientId]) {
+      res.writeHead(404, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({
+        error: 'unknown_client',
+        message: `Client '${clientId}' not found`,
+        availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
     
     // Check authorization
     if (!authOk(req)) {
       logger.trackRequest({
-        clientId: clientN,
+        clientId,
         method: 'AUTH_FAILED',
         duration: Date.now() - requestStart,
         success: false
@@ -294,10 +387,11 @@ const server = http.createServer(async (req, res) => {
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
     const method = body?.method;
     
-    logger.log('DEBUG', `Request: ${method}`, { clientId: clientN, tool: body?.params?.name });
+    logger.log('DEBUG', `Request: ${method}`, { clientId, tool: body?.params?.name });
     
     // Handle initialize
     if (method === 'initialize') {
+      const client = clients[clientId];
       const response = {
         jsonrpc: '2.0',
         id: body.id || '1',
@@ -305,14 +399,14 @@ const server = http.createServer(async (req, res) => {
           protocolVersion: MCP_VERSION,
           capabilities: { tools: { listChanged: false } },
           serverInfo: {
-            name: `MCP Hub - ${reverseMapping[clientN] || `Client ${clientN}`}`,
+            name: `MCP Hub - ${client.name}`,
             version: '3.0.0',
             description: 'WordPress + DataForSEO with Rate Limiting, Caching & Analytics'
           }
         }
       };
       
-      logger.trackRequest({ clientId: clientN, method: 'initialize', duration: Date.now() - requestStart, success: true });
+      logger.trackRequest({ clientId, method: 'initialize', duration: Date.now() - requestStart, success: true });
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(response));
@@ -321,12 +415,12 @@ const server = http.createServer(async (req, res) => {
     // Handle tools/list
     if (method === 'tools/list') {
       const [wpList, dfsList] = await Promise.all([
-        rpc(`http://127.0.0.1:9091/mcp`, body, clientN),
-        rpc(`http://127.0.0.1:9092/mcp`, body, clientN)
+        rpc(`http://127.0.0.1:9091/mcp`, body, clientId),
+        rpc(`http://127.0.0.1:9092/mcp`, body, clientId)
       ]);
       
       const merged = mergeTools(wpList, dfsList);
-      logger.trackRequest({ clientId: clientN, method: 'tools/list', duration: Date.now() - requestStart, success: true });
+      logger.trackRequest({ clientId, method: 'tools/list', duration: Date.now() - requestStart, success: true });
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(merged));
@@ -338,11 +432,11 @@ const server = http.createServer(async (req, res) => {
       const toolArgs = body?.params?.arguments || {};
       
       // Check rate limit
-      const rateLimitResult = rateLimiter.checkLimit(clientN, toolName);
+      const rateLimitResult = rateLimiter.checkLimit(clientId, toolName);
       
       if (!rateLimitResult.allowed) {
         logger.trackRequest({ 
-          clientId: clientN, 
+          clientId, 
           method: 'tools/call', 
           toolName, 
           duration: Date.now() - requestStart, 
@@ -363,11 +457,11 @@ const server = http.createServer(async (req, res) => {
       }
       
       // Check cache
-      const cached = cacheManager.get(clientN, toolName, toolArgs);
+      const cached = cacheManager.get(clientId, toolName, toolArgs);
       
       if (cached) {
         logger.trackRequest({ 
-          clientId: clientN, 
+          clientId, 
           method: 'tools/call', 
           toolName, 
           duration: Date.now() - requestStart, 
@@ -387,12 +481,12 @@ const server = http.createServer(async (req, res) => {
       // Forward to upstream
       const { url, rewritten } = chooseUpstreamByTool(toolName);
       const forwardBody = { ...body, params: { ...body.params, name: rewritten } };
-      const out = await rpc(url, forwardBody, clientN);
+      const out = await rpc(url, forwardBody, clientId);
       
       // Cache the result
-      cacheManager.set(clientN, toolName, toolArgs, out.result);
+      cacheManager.set(clientId, toolName, toolArgs, out.result);
       logger.trackRequest({ 
-        clientId: clientN, 
+        clientId, 
         method: 'tools/call', 
         toolName, 
         duration: Date.now() - requestStart, 
@@ -409,8 +503,8 @@ const server = http.createServer(async (req, res) => {
     }
     
     // Default: forward to WordPress
-    const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientN);
-    logger.trackRequest({ clientId: clientN, method: method || 'unknown', duration: Date.now() - requestStart, success: true });
+    const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
+    logger.trackRequest({ clientId, method: method || 'unknown', duration: Date.now() - requestStart, success: true });
     
     res.writeHead(200, {'Content-Type':'application/json'});
     return res.end(JSON.stringify(out));
@@ -424,8 +518,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   logger.log('INFO', `MCP Hub listening on :${PORT}`, {
-    clients: Object.keys(clientMapping).length,
-    features: ['rate-limiting', 'caching', 'analytics']
+    endpoint: '/mcp',
+    clients: Object.keys(clients).filter(k => !k.match(/^\d+$/)).length,
+    features: ['single-endpoint', 'rate-limiting', 'caching', 'analytics']
   });
 });
 

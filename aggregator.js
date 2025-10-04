@@ -8,8 +8,7 @@ import CacheManager from './cache-manager.js';
 import AnalyticsLogger from './analytics-logger.js';
 
 const PORT = 9090;
-const PROXY_TOKEN = process.env.PROXY_TOKEN || '';
-const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || '';
+const AUTH_TOKEN = process.env.PROXY_TOKEN || '';
 const MCP_VERSION = '2025-03-01';
 
 // Initialize modules
@@ -19,8 +18,7 @@ const logger = new AnalyticsLogger();
 
 logger.log('INFO', 'MCP Hub starting', {
   port: PORT,
-  managementAuthEnabled: !!PROXY_TOKEN,
-  mcpAuthEnabled: !!MCP_AUTH_TOKEN
+  authEnabled: !!AUTH_TOKEN
 });
 
 // Build client mapping from environment variables
@@ -83,18 +81,11 @@ function getClientId(req, url) {
   return null;
 }
 
-// Check authorization for management endpoints
-function managementAuthOk(req) {
-  if (!PROXY_TOKEN) return true; // No token set = open access
+// Check authorization - one token for everything
+function authOk(req) {
+  if (!AUTH_TOKEN) return true; // No token set = open access
   const hdr = req.headers['authorization'];
-  return hdr === PROXY_TOKEN || hdr === `Bearer ${PROXY_TOKEN}`;
-}
-
-// Check authorization for MCP endpoint (optional)
-function mcpAuthOk(req) {
-  if (!MCP_AUTH_TOKEN) return true; // No token set = open access
-  const hdr = req.headers['authorization'];
-  return hdr === MCP_AUTH_TOKEN || hdr === `Bearer ${MCP_AUTH_TOKEN}`;
+  return hdr === AUTH_TOKEN || hdr === `Bearer ${AUTH_TOKEN}`;
 }
 
 async function rpc(upstreamUrl, body, clientId) {
@@ -186,17 +177,14 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const { pathname } = url;
     
-    // Health check endpoint (public)
+    // Health check endpoint (public - no auth required)
     if (pathname === '/health') {
       const health = {
         status: 'healthy',
         version: '3.0.0',
         uptime: process.uptime(),
         endpoint: '/mcp',
-        authentication: {
-          mcpEndpoint: MCP_AUTH_TOKEN ? 'required' : 'open',
-          managementEndpoints: PROXY_TOKEN ? 'required' : 'open'
-        },
+        authentication: AUTH_TOKEN ? 'enabled' : 'disabled',
         clientIdentification: ['X-Client-ID header', 'client query parameter'],
         registeredClients: Object.keys(clients).filter(k => !k.match(/^\d+$/)),
         features: {
@@ -215,11 +203,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(health, null, 2));
     }
     
-    // Analytics endpoint (requires management auth)
+    // Analytics endpoint (requires auth)
     if (pathname === '/analytics') {
-      if (!managementAuthOk(req)) {
+      if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized', message:'Management token required'}));
+        return res.end(JSON.stringify({error:'unauthorized'}));
       }
       
       const minutes = parseInt(url.searchParams.get('minutes') || '60');
@@ -229,11 +217,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(analytics, null, 2));
     }
     
-    // Stats endpoint (requires management auth)
+    // Stats endpoint (requires auth)
     if (pathname === '/stats') {
-      if (!managementAuthOk(req)) {
+      if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized', message:'Management token required'}));
+        return res.end(JSON.stringify({error:'unauthorized'}));
       }
       
       const clientId = url.searchParams.get('client');
@@ -248,11 +236,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(stats, null, 2));
     }
     
-    // Clients list endpoint (requires management auth)
+    // Clients list endpoint (requires auth)
     if (pathname === '/clients') {
-      if (!managementAuthOk(req)) {
+      if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized', message:'Management token required'}));
+        return res.end(JSON.stringify({error:'unauthorized'}));
       }
       
       const clientList = Object.entries(clients)
@@ -270,7 +258,7 @@ const server = http.createServer(async (req, res) => {
     // Documentation page (public)
     if (pathname === '/' || pathname === '/docs') {
       const clientList = Object.keys(clients).filter(k => !k.match(/^\d+$/)).join(', ');
-      const mcpAuthStatus = MCP_AUTH_TOKEN ? 'Required' : 'Open';
+      const authStatus = AUTH_TOKEN ? 'Required' : 'Open';
       
       res.writeHead(200, {'Content-Type':'text/html'});
       return res.end(`
@@ -285,49 +273,45 @@ const server = http.createServer(async (req, res) => {
             .endpoint { background: white; padding: 25px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
             code { background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 14px; }
             pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 8px; overflow-x: auto; }
-            .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; background: #10b981; color: white; }
-            .auth-badge { background: #ef4444; }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+            .badge-green { background: #10b981; color: white; }
+            .badge-red { background: #ef4444; color: white; }
             h1 { margin: 0; }
             h2 { color: #1e293b; margin-top: 0; }
           </style>
         </head>
         <body>
           <div class="hero">
-            <h1>MCP Hub <span class="badge">Single Endpoint</span></h1>
+            <h1>MCP Hub <span class="badge badge-green">Single Endpoint</span></h1>
             <p style="font-size: 18px; margin: 10px 0 0 0;">One endpoint, multiple clients. Secure, scalable, simple.</p>
           </div>
           
           <div class="endpoint">
-            <h2>📍 Main Endpoint <span class="badge${MCP_AUTH_TOKEN ? ' auth-badge' : ''}">${mcpAuthStatus}</span></h2>
+            <h2>📍 Main Endpoint <span class="badge ${AUTH_TOKEN ? 'badge-red' : 'badge-green'}">${authStatus}</span></h2>
             <code>POST /mcp</code>
             <p>Single unified endpoint for all MCP operations</p>
             
-            <h3>Client Identification (choose one):</h3>
-            
-            <h4>Option 1: Header (Recommended)</h4>
+            <h3>Usage:</h3>
             <pre>POST /mcp
 X-Client-ID: strudel
-${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: application/json
+${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: application/json
 
-{ "jsonrpc": "2.0", "method": "initialize", "id": "1" }</pre>
-            
-            <h4>Option 2: Query Parameter</h4>
-            <pre>POST /mcp?client=strudel
-${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: application/json
-
-{ "jsonrpc": "2.0", "method": "initialize", "id": "1" }</pre>
+{
+  "jsonrpc": "2.0",
+  "method": "initialize",
+  "id": "1"
+}</pre>
           </div>
           
           <div class="endpoint">
             <h2>✨ Features</h2>
             <ul>
               <li>✅ Single endpoint - no per-client URLs</li>
-              <li>✅ Flexible client identification (header/query)</li>
-              <li>✅ ${MCP_AUTH_TOKEN ? 'Secured with authentication token' : 'Open access (no auth required)'}</li>
+              <li>✅ Flexible client identification</li>
+              <li>✅ ${AUTH_TOKEN ? 'Secured with single authentication token' : 'Open access'}</li>
               <li>✅ Rate Limiting per client</li>
               <li>✅ Smart Caching (saves 80% on DataForSEO costs)</li>
               <li>✅ Real-time Analytics</li>
-              <li>✅ Multi-tenant support (up to 15 clients)</li>
             </ul>
           </div>
           
@@ -337,11 +321,11 @@ ${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: appli
           </div>
           
           <div class="endpoint">
-            <h2>📊 Management Endpoints <span class="badge auth-badge">Auth Required</span></h2>
+            <h2>📊 Management Endpoints</h2>
             <p><code>GET /health</code> - Health check (public)</p>
-            <p><code>GET /clients</code> - List all clients (requires PROXY_TOKEN)</p>
-            <p><code>GET /stats?client=strudel</code> - Statistics (requires PROXY_TOKEN)</p>
-            <p><code>GET /analytics?minutes=60</code> - Analytics (requires PROXY_TOKEN)</p>
+            <p><code>GET /clients</code> - List all clients ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
+            <p><code>GET /stats</code> - Statistics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
+            <p><code>GET /analytics</code> - Analytics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
           </div>
         </body>
         </html>
@@ -358,11 +342,11 @@ ${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: appli
       }));
     }
     
-    // Check MCP authentication (if enabled)
-    if (MCP_AUTH_TOKEN && !mcpAuthOk(req)) {
+    // Check authentication for MCP endpoint
+    if (!authOk(req)) {
       logger.trackRequest({
         clientId: 'unknown',
-        method: 'MCP_AUTH_FAILED',
+        method: 'AUTH_FAILED',
         duration: Date.now() - requestStart,
         success: false
       });
@@ -370,7 +354,7 @@ ${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: appli
       res.writeHead(401, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
         error:'unauthorized', 
-        message: 'MCP authentication token required. Set Authorization: Bearer tooltool39'
+        message: 'Authentication required. Use: Authorization: Bearer YOUR-TOKEN'
       }));
     }
     
@@ -533,10 +517,9 @@ ${MCP_AUTH_TOKEN ? 'Authorization: Bearer tooltool39\n' : ''}Content-Type: appli
 server.listen(PORT, '0.0.0.0', () => {
   logger.log('INFO', `MCP Hub listening on :${PORT}`, {
     endpoint: '/mcp',
-    mcpAuth: MCP_AUTH_TOKEN ? 'enabled' : 'disabled',
-    managementAuth: PROXY_TOKEN ? 'enabled' : 'disabled',
+    authEnabled: !!AUTH_TOKEN,
     clients: Object.keys(clients).filter(k => !k.match(/^\d+$/)).length,
-    features: ['single-endpoint', 'rate-limiting', 'caching', 'analytics']
+    features: ['single-endpoint', 'unified-auth', 'rate-limiting', 'caching', 'analytics']
   });
 });
 

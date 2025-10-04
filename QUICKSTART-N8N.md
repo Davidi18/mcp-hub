@@ -1,78 +1,148 @@
-# 🚀 Quick Start Guide - n8n Integration
+# 🚀 MCP Hub v2.0 - Quick Start
 
-## Problem Solved ✅
+## מה השתנה? 🎯
 
-After deploying MCP Hub, you couldn't connect it to n8n because:
-- n8n requires **SSE (Server-Sent Events)** transport
-- The original MCP Hub only had JSON-RPC endpoints
-- Missing proper SSE endpoint for MCP protocol
-
-**Solution**: Added `sse-transport.js` running on port 9093 with proper SSE support!
-
----
-
-## What Changed
-
-### New Files Added
-1. **sse-transport.js** - SSE transport server for n8n
-2. **n8n-integration.md** - Complete integration guide
-3. Updated **Dockerfile** - Includes SSE transport
-4. Updated **entrypoint-v2.sh** - Starts SSE server on port 9093
-
-### New Endpoints
-Each client now has **TWO** endpoints:
-
-**JSON-RPC (for API calls):**
-```
-https://mcp.your-domain.com/client1/mcp
-```
-
-**SSE (for n8n):**
-```
-https://mcp.your-domain.com/client1/sse
-```
+### הגרסה החדשה כוללת:
+✅ **Endpoint דינמי אחד** - `/sse` עם 3 דרכים לציין לקוח  
+✅ **הוספת לקוחות דרך ENV בלבד** - אין קוד קשיח  
+✅ **פרטי גישה דינמיים** - הכל מתוך משתני סביבה  
+✅ **ניקיון קוד** - הוסרו קבצים ישנים  
 
 ---
 
-## Installation Steps
-
-### 1. Update Your Deployment
-
-Pull the latest code and redeploy:
+## הגדרת לקוחות (Environment Variables)
 
 ```bash
-# In Coolify or your deployment platform:
-1. Trigger new deployment from GitHub
-2. Wait for build to complete
-3. Check logs to verify SSE transport started
+# Authentication
+PROXY_TOKEN=your_secure_token
+
+# DataForSEO (אופציונלי)
+DFS_USER=your_dataforseo_email
+DFS_PASS=your_dataforseo_api_key
+
+# Client 1
+WP1_URL=https://site1.com
+WP1_USER=admin@site1.com
+WP1_APP_PASS=xxxx xxxx xxxx xxxx
+CLIENT1_NAME=Site1  # אופציונלי - אם לא מוגדר יהיה "client1"
+
+# Client 2
+WP2_URL=https://acme.com
+WP2_USER=admin@acme.com
+WP2_APP_PASS=yyyy yyyy yyyy yyyy
+CLIENT2_NAME=AcmeCorp
+
+# Client 3
+WP3_URL=https://techstartup.com
+WP3_USER=admin@techstartup.com
+WP3_APP_PASS=zzzz zzzz zzzz zzzz
+CLIENT3_NAME=TechStartup
+
+# ... עד 15 לקוחות
 ```
 
-### 2. Verify SSE Transport is Running
+---
 
-Check your logs:
+## 3 דרכים להשתמש ב-SSE Endpoint
+
+### דרך 1: Query Parameter (מומלץ ל-n8n) ⭐
+
 ```bash
-docker logs mcp-hub | grep "SSE Transport"
+POST https://mcp.your-domain.com/sse?client=acmecorp
+Authorization: your_token
 ```
 
-You should see:
-```
-✅ SSE Transport listening on :9093
-📍 Example endpoint: http://localhost:9093/client1/sse
-```
+**יתרונות:**
+- ✅ Endpoint אחד לכל הלקוחות
+- ✅ קל להגדיר ב-n8n
+- ✅ קל לשנות לקוח
 
-### 3. Expose Port 9093
-
-**Option A: Coolify/Docker**
-Make sure port 9093 is exposed in your container settings.
-
-**Option B: Traefik (if using)**
-The existing Traefik config should work, but verify it routes to port 9093 for `/sse` paths.
-
-### 4. Test the SSE Endpoint
+### דרך 2: HTTP Header
 
 ```bash
-curl -X POST https://mcp.your-domain.com/client1/sse \
-  -H "Authorization: YOUR_PROXY_TOKEN" \
+POST https://mcp.your-domain.com/sse
+Authorization: your_token
+X-Client-ID: acmecorp
+```
+
+### דרך 3: Path (תמיכה לאחור)
+
+```bash
+POST https://mcp.your-domain.com/acmecorp/sse
+Authorization: your_token
+```
+
+---
+
+## הגדרה ב-n8n
+
+### אופציה 1: Endpoint אוניברסלי (מומלץ)
+
+```json
+{
+  "mcpServers": {
+    "mcp-hub-acme": {
+      "transport": "sse",
+      "url": "https://mcp.your-domain.com/sse?client=acmecorp",
+      "headers": {
+        "Authorization": "your_proxy_token"
+      }
+    },
+    "mcp-hub-site1": {
+      "transport": "sse",
+      "url": "https://mcp.your-domain.com/sse?client=site1",
+      "headers": {
+        "Authorization": "your_proxy_token"
+      }
+    }
+  }
+}
+```
+
+### אופציה 2: Header-Based
+
+```json
+{
+  "mcpServers": {
+    "mcp-hub": {
+      "transport": "sse",
+      "url": "https://mcp.your-domain.com/sse",
+      "headers": {
+        "Authorization": "your_proxy_token",
+        "X-Client-ID": "acmecorp"
+      }
+    }
+  }
+}
+```
+
+---
+
+## בדיקה מהירה
+
+### רשימת לקוחות זמינים
+
+```bash
+curl https://mcp.your-domain.com/clients \
+  -H "Authorization: your_token"
+```
+
+תשובה:
+```json
+{
+  "clients": [
+    {"name": "Site1", "id": "site1", "url": "https://site1.com"},
+    {"name": "AcmeCorp", "id": "acmecorp", "url": "https://acme.com"},
+    {"name": "TechStartup", "id": "techstartup", "url": "https://techstartup.com"}
+  ]
+}
+```
+
+### בדיקת חיבור
+
+```bash
+curl -X POST "https://mcp.your-domain.com/sse?client=acmecorp" \
+  -H "Authorization: your_token" \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
   -d '{
@@ -82,257 +152,147 @@ curl -X POST https://mcp.your-domain.com/client1/sse \
     "params": {
       "protocolVersion": "2024-11-05",
       "capabilities": {},
-      "clientInfo": {
-        "name": "test",
-        "version": "1.0.0"
-      }
+      "clientInfo": {"name": "test", "version": "1.0.0"}
     }
   }'
 ```
 
-Expected response (SSE format):
-```
-data: {"jsonrpc":"2.0","id":"1","result":{"protocolVersion":"2024-11-05",...}}
-```
-
 ---
 
-## Configure n8n
+## הוספת לקוח חדש
 
-### Method 1: n8n Cloud/Self-Hosted UI
+### שלב 1: הוסף משתנים ב-Coolify/Docker
 
-1. Go to **Settings** → **Model Context Protocol**
-2. Click **Add Server**
-3. Configure:
-   - **Name**: `MCP Hub - Client1`
-   - **Transport Type**: `SSE` (or `HTTP with SSE`)
-   - **URL**: `https://mcp.your-domain.com/client1/sse`
-   - **Authentication**:
-     - Type: `Header`
-     - Header Name: `Authorization`
-     - Header Value: `your_proxy_token_here`
-
-### Method 2: n8n Configuration File
-
-Add to `~/.n8n/config` or environment variables:
-
-```json
-{
-  "mcpServers": {
-    "mcp-hub": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/client1/sse",
-      "headers": {
-        "Authorization": "your_proxy_token_here"
-      }
-    }
-  }
-}
-```
-
-Or as environment variable:
 ```bash
-N8N_MCP_SERVERS='{"mcp-hub":{"transport":"sse","url":"https://mcp.your-domain.com/client1/sse","headers":{"Authorization":"your_token"}}}'
+WP4_URL=https://newclient.com
+WP4_USER=admin@newclient.com
+WP4_APP_PASS=your_app_password
+CLIENT4_NAME=NewClient
 ```
 
-### Method 3: n8n MCP Node Configuration
+### שלב 2: Redeploy
 
-In your n8n workflow:
+הלקוח החדש יזוהה אוטומטית!
 
-1. Add **MCP** or **AI Agent** node
-2. In MCP Server settings:
-   - **Server URL**: `https://mcp.your-domain.com/client1/sse`
-   - **Transport**: `SSE`
-   - **Headers**: Add `Authorization` with your token
+### שלב 3: שימוש ב-n8n
+
+```
+https://mcp.your-domain.com/sse?client=newclient
+```
+
+**זהו!** אין צורך בשינוי קוד. 🎉
 
 ---
 
-## Test in n8n
+## Endpoints זמינים
 
-### Example Workflow 1: List Tools
-
-```json
-{
-  "nodes": [
-    {
-      "name": "MCP List Tools",
-      "type": "n8n-nodes-base.mcp",
-      "parameters": {
-        "server": "mcp-hub",
-        "method": "tools/list"
-      }
-    }
-  ]
-}
-```
-
-### Example Workflow 2: WordPress Search
-
-```json
-{
-  "nodes": [
-    {
-      "name": "Search WP Posts",
-      "type": "n8n-nodes-base.mcp",
-      "parameters": {
-        "server": "mcp-hub",
-        "method": "tools/call",
-        "tool": "wp/wp_posts_search",
-        "arguments": {
-          "search": "marketing",
-          "per_page": 5
-        }
-      }
-    }
-  ]
-}
-```
-
-### Example Workflow 3: SEO Analysis
-
-```json
-{
-  "nodes": [
-    {
-      "name": "Get SERP Data",
-      "type": "n8n-nodes-base.mcp",
-      "parameters": {
-        "server": "mcp-hub",
-        "method": "tools/call",
-        "tool": "dfs/serp_organic_live_advanced",
-        "arguments": {
-          "keyword": "digital marketing",
-          "location_name": "Israel"
-        }
-      }
-    }
-  ]
-}
-```
+| Endpoint | תיאור | דוגמה |
+|----------|------|-------|
+| `/health` | בדיקת תקינות | `GET /health` |
+| `/clients` | רשימת לקוחות | `GET /clients` (requires auth) |
+| `/sse` | SSE אוניברסלי | `POST /sse?client=name` |
+| `/sse` | SSE עם header | `POST /sse` + `X-Client-ID` header |
+| `/{client}/sse` | SSE path-based | `POST /acmecorp/sse` |
+| `/{client}/mcp` | JSON-RPC | `POST /acmecorp/mcp` |
 
 ---
 
-## Available Tools in n8n
+## כלים זמינים
 
-Once connected, you'll have access to **94 tools**:
+כל לקוח מקבל גישה ל:
 
-### WordPress Tools (33)
-- `wp/wp_posts_search` - Search posts
-- `wp/wp_add_post` - Create posts
-- `wp/wp_update_post` - Update posts
-- `wp/wp_pages_search` - Search pages
-- `wp/wp_list_categories` - List categories
-- `wp/wp_list_media` - List media
-- `wp/get_site_info` - Site information
-- And 26 more...
+### WordPress (33 כלים)
+- `wp/wp_posts_search` - חיפוש פוסטים
+- `wp/wp_add_post` - יצירת פוסט
+- `wp/wp_update_post` - עדכון פוסט
+- `wp/wp_list_media` - רשימת מדיה
+- `wp/get_site_info` - מידע על האתר
+- ועוד 28 כלים...
 
-### DataForSEO Tools (61)
-- `dfs/serp_organic_live_advanced` - SERP analysis
-- `dfs/keywords_data_google_ads_search_volume` - Keyword volume
-- `dfs/backlinks_backlinks` - Backlink analysis
-- `dfs/content_analysis_search` - Content analysis
-- And 57 more...
+### DataForSEO (61 כלים)
+- `dfs/serp_organic_live_advanced` - ניתוח SERP
+- `dfs/keywords_data_google_ads_search_volume` - נפח חיפוש
+- `dfs/backlinks_backlinks` - ניתוח קישורים חוזרים
+- `dfs/content_analysis_search` - ניתוח תוכן
+- ועוד 57 כלים...
 
 ---
 
 ## Troubleshooting
 
-### ❌ "Cannot connect to MCP server"
+### ❌ "Client not found"
 
-**Check 1: SSE Transport is running**
+בדוק שהמשתנים מוגדרים נכון:
 ```bash
-docker logs mcp-hub | grep -i sse
+docker logs mcp-hub | grep "Client loaded"
 ```
 
-**Check 2: Port 9093 is accessible**
-```bash
-curl https://mcp.your-domain.com:9093/health
+אמור להראות:
+```
+✅ Client loaded: AcmeCorp (acmecorp)
+✅ Client loaded: Site1 (site1)
 ```
 
-**Check 3: Authorization token is correct**
+### ❌ "Unauthorized"
+
+וודא ש-`Authorization` header תואם ל-`PROXY_TOKEN`:
 ```bash
-echo $PROXY_TOKEN  # Should match what you're using in n8n
+echo $PROXY_TOKEN
 ```
-
-### ❌ "Authentication failed"
-
-Make sure the `Authorization` header in n8n exactly matches your `PROXY_TOKEN` environment variable.
 
 ### ❌ "No tools available"
 
-**Check WordPress and DataForSEO services:**
+בדוק ש-WordPress ו-DataForSEO רצים:
 ```bash
-docker logs mcp-hub | grep -i "wordpress\|dataforseo"
-```
-
-Both should show as started.
-
-### ❌ "SSE connection timeout"
-
-This usually means:
-1. Port 9093 not exposed/accessible
-2. Firewall blocking the connection
-3. SSL certificate issues
-
-**Test directly:**
-```bash
-curl -v https://mcp.your-domain.com/client1/sse
+docker logs mcp-hub | grep -i "proxy\|dataforseo"
 ```
 
 ---
 
-## Architecture Overview
+## דוגמאות שימוש ב-n8n
 
-```
-┌─────────┐
-│   n8n   │
-└────┬────┘
-     │ SSE Connection
-     ↓
-┌────────────────────────────────────┐
-│  MCP Hub (Port 9093)               │
-│  sse-transport.js                  │
-└────┬───────────────────────────────┘
-     │
-     ├─→ WordPress Proxy (9091) ─→ WordPress Sites
-     │
-     └─→ DataForSEO MCP (9092) ─→ DataForSEO API
-```
+### דוגמה 1: חיפוש פוסטים
 
----
-
-## Multiple Clients
-
-Configure multiple WordPress sites:
-
-```bash
-# Client 1
-WP1_URL=https://site1.com
-WP1_USER=user1@site1.com
-WP1_APP_PASS=xxxx xxxx xxxx
-CLIENT1_NAME=Site1
-
-# Client 2
-WP2_URL=https://site2.com
-WP2_USER=user2@site2.com
-WP2_APP_PASS=yyyy yyyy yyyy
-CLIENT2_NAME=AcmeCorp
-```
-
-Then in n8n, configure multiple MCP servers:
-
-```json
+```javascript
+// In n8n MCP node
 {
-  "mcpServers": {
-    "site1": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/site1/sse",
-      "headers": {"Authorization": "token"}
-    },
-    "acmecorp": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/acmecorp/sse",
-      "headers": {"Authorization": "token"}
+  "method": "tools/call",
+  "params": {
+    "name": "wp/wp_posts_search",
+    "arguments": {
+      "search": "marketing",
+      "per_page": 5
+    }
+  }
+}
+```
+
+### דוגמה 2: ניתוח SEO
+
+```javascript
+{
+  "method": "tools/call",
+  "params": {
+    "name": "dfs/serp_organic_live_advanced",
+    "arguments": {
+      "keyword": "digital marketing",
+      "location_name": "Israel"
+    }
+  }
+}
+```
+
+### דוגמה 3: יצירת פוסט חדש
+
+```javascript
+{
+  "method": "tools/call",
+  "params": {
+    "name": "wp/wp_add_post",
+    "arguments": {
+      "title": "פוסט חדש",
+      "content": "תוכן הפוסט...",
+      "status": "draft"
     }
   }
 }
@@ -340,41 +300,40 @@ Then in n8n, configure multiple MCP servers:
 
 ---
 
-## Security Notes
+## יתרונות הגרסה החדשה
 
-1. **Always use HTTPS** - n8n requires secure connections for SSE
-2. **Strong tokens** - Use a strong `PROXY_TOKEN`
-3. **Firewall rules** - Limit access to port 9093 if needed
-4. **Monitor logs** - Check for unauthorized access attempts
+### לפני v2.0:
+❌ Endpoint נפרד לכל לקוח  
+❌ צריך לעדכן קוד להוסיף לקוח  
+❌ פרטי גישה בקוד  
 
----
-
-## Next Steps
-
-1. ✅ Deploy updated MCP Hub
-2. ✅ Verify SSE transport is running
-3. ✅ Configure n8n connection
-4. ✅ Test with simple workflow
-5. 🚀 Build your automation workflows!
+### אחרי v2.0:
+✅ Endpoint אחד דינמי  
+✅ הוספת לקוח דרך ENV בלבד  
+✅ כל הפרטים דינמיים  
+✅ 3 דרכים לציין לקוח  
+✅ קוד נקי ומסודר  
 
 ---
 
-## Support
+## סיכום
 
-- **Full Documentation**: [n8n-integration.md](./n8n-integration.md)
-- **GitHub Issues**: https://github.com/Davidi18/mcp-hub/issues
-- **Email**: support@strudel.marketing
+**להוספת לקוח:**
+1. הוסף 4 משתנים ל-ENV (URL, USER, APP_PASS, NAME)
+2. Redeploy
+3. השתמש: `/sse?client=clientname`
+
+**לשימוש ב-n8n:**
+1. URL: `https://mcp.your-domain.com/sse?client=<name>`
+2. Headers: `Authorization: your_token`
+3. Transport: `SSE`
+
+**זהו!** 🎉
 
 ---
 
-## Summary
+## קישורים
 
-**Before**: ❌ No n8n connection possible  
-**After**: ✅ Full SSE support with 94 tools available
-
-**Key Endpoints**:
-- Health: `https://mcp.your-domain.com/health`
-- JSON-RPC: `https://mcp.your-domain.com/client1/mcp`
-- **SSE (n8n)**: `https://mcp.your-domain.com/client1/sse` ⭐
-
-Happy automating! 🎉
+- **מדריך מפורט**: [n8n-integration.md](./n8n-integration.md)
+- **סקריפט בדיקה**: `./test-sse-transport.sh`
+- **בעיות**: [GitHub Issues](https://github.com/Davidi18/mcp-hub/issues)

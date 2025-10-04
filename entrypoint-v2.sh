@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "🚀 Starting MCP Hub v2.0..."
+echo "🚀 Starting MCP Hub..."
 echo ""
 
 # Environment check - show all configured clients
@@ -76,15 +76,20 @@ echo "⏳ Waiting for services to initialize..."
 sleep 5
 echo ""
 
-# Start aggregator v2 on port 9090
+# Start aggregator on port 9090
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🎯 Starting MCP Hub Aggregator v2.0 on port 9090..."
+echo "🎯 Starting MCP Hub Aggregator..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Use aggregator-v2.js if exists, otherwise fall back to aggregator.js
-if [ -f /app/aggregator-v2.js ]; then
+# Try v3 first, then v2
+if [ -f /app/aggregator-v3.js ]; then
+  echo "✅ Using aggregator-v3.js (Rate Limiting, Caching & Analytics)"
+  exec node /app/aggregator-v3.js
+elif [ -f /app/aggregator-v2.js ]; then
+  echo "✅ Using aggregator-v2.js (SSE & MCP Protocol)"
   exec node /app/aggregator-v2.js
 else
-  exec node /app/aggregator.js
+  echo "❌ No aggregator found!"
+  exit 1
 fi

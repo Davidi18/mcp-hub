@@ -91,36 +91,49 @@ function authOk(req) {
 async function rpc(client, body) {
   const startTime = Date.now();
   const url = `http://127.0.0.1:${client.port}/mcp`;
-  
+
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
+        'Accept': 'application/json', // רק JSON, בלי event-stream
+        'Connection': 'close',        // מבטל כל ניסיון לפתוח stream
         'User-Agent': 'MCP-Hub/3.0'
       },
       body: JSON.stringify(body),
     });
-    
+
+    // קוראים את התגובה כטקסט כדי לזהות אם היא באמת JSON
+    const text = await res.text();
+
     if (!res.ok) {
-      const errorText = await res.text().catch(() => '');
+      // שגיאה שמגיעה מהשרת עצמו
       logger.log('ERROR', `WordPress MCP error ${res.status}`, {
         client: client.name,
         port: client.port,
         status: res.status,
-        errorBody: errorText.substring(0, 200)
+        errorBody: text.substring(0, 200)
       });
-      throw new Error(`WordPress MCP HTTP ${res.status}: ${errorText.substring(0, 100)}`);
+      throw new Error(`WordPress MCP HTTP ${res.status}: ${text.substring(0, 100)}`);
     }
-    
+
+    // מוודאים שהתוכן הוא JSON תקין
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Invalid JSON from WordPress MCP (${client.name}): ${text.substring(0, 200)}`);
+    }
+
+    // לוג ביצועים
     const duration = Date.now() - startTime;
     logger.trackPerformance('wordpress_rpc', duration, {
       client: client.name,
       method: body.method
     });
-    
-    return await res.json();
+
+    return data;
   } catch (error) {
     logger.trackError(error, {
       operation: 'wordpress_rpc',

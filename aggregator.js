@@ -97,18 +97,16 @@ async function rpc(client, body) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json', // רק JSON, בלי event-stream
-        'Connection': 'close',        // מבטל כל ניסיון לפתוח stream
+        'Accept': 'application/json, text/event-stream',
+        'Connection': 'close',
         'User-Agent': 'MCP-Hub/3.0'
       },
       body: JSON.stringify(body),
     });
 
-    // קוראים את התגובה כטקסט כדי לזהות אם היא באמת JSON
     const text = await res.text();
 
     if (!res.ok) {
-      // שגיאה שמגיעה מהשרת עצמו
       logger.log('ERROR', `WordPress MCP error ${res.status}`, {
         client: client.name,
         port: client.port,
@@ -118,15 +116,24 @@ async function rpc(client, body) {
       throw new Error(`WordPress MCP HTTP ${res.status}: ${text.substring(0, 100)}`);
     }
 
-    // מוודאים שהתוכן הוא JSON תקין
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`Invalid JSON from WordPress MCP (${client.name}): ${text.substring(0, 200)}`);
+    // אם זה נראה כמו event stream, נחתוך רק את התוכן הרלוונטי
+    if (text.startsWith('event:') || text.includes('data: {')) {
+      const match = text.match(/data:\s*(\{.*\})/s);
+      if (match && match[1]) {
+        const json = match[1].trim();
+        try {
+          const parsed = JSON.parse(json);
+          return parsed;
+        } catch (e) {
+          throw new Error(`Malformed JSON inside SSE for ${client.name}: ${json.substring(0, 200)}`);
+        }
+      }
+      throw new Error(`Invalid SSE format from WordPress MCP (${client.name}): ${text.substring(0, 200)}`);
     }
 
-    // לוג ביצועים
+    // אחרת נפרש כ־JSON רגיל
+    const data = JSON.parse(text);
+
     const duration = Date.now() - startTime;
     logger.trackPerformance('wordpress_rpc', duration, {
       client: client.name,

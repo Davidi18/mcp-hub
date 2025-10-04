@@ -421,9 +421,10 @@ const server = http.createServer(async (req, res) => {
     }
     
     // Handle tools/call with rate limiting and caching
-    if (method === 'tools/call') {
-      const toolName = body?.params?.name;
-      const toolArgs = body?.params?.arguments || {};
+      if (method === 'tools/call') {
+        const toolName = body?.params?.name || 'unknown';
+        const toolArgs = body?.params?.arguments ?? {};
+        const normalizedArgs = Array.isArray(toolArgs) ? toolArgs : [toolArgs];
       
       const rateLimitResult = rateLimiter.checkLimit(clientId, toolName);
       
@@ -449,7 +450,7 @@ const server = http.createServer(async (req, res) => {
         }));
       }
       
-      const cached = cacheManager.get(clientId, toolName, toolArgs);
+      const cached = cacheManager.get(clientId, toolName, normalizedArgs);
       
       if (cached) {
         logger.trackRequest({ 
@@ -472,7 +473,7 @@ const server = http.createServer(async (req, res) => {
       
       const out = await rpc(client, body);
       
-      cacheManager.set(clientId, toolName, toolArgs, out.result);
+      cacheManager.set(clientId, toolName, normalizedArgs, out.result);
       logger.trackRequest({ 
         clientId, 
         method: 'tools/call', 

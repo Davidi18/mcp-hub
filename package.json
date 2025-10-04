@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "name": "mcp-hub",
+  "version": "3.0.0",
+  "description": "MCP Hub - Unified WordPress & DataForSEO with Rate Limiting, Caching & Analytics"
+}

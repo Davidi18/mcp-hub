@@ -18,6 +18,7 @@ COPY rate-limiter.js /app/rate-limiter.js
 COPY cache-manager.js /app/cache-manager.js
 COPY analytics-logger.js /app/analytics-logger.js
 COPY wp-dynamic-proxy.js /app/wp-dynamic-proxy.js
+COPY sse-transport.js /app/sse-transport.js
 COPY upstreams.template.json /app/upstreams.template.json
 
 # Make scripts executable
@@ -27,6 +28,6 @@ RUN chmod +x /app/entrypoint-v2.sh
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:9090/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }).on('error', () => process.exit(1));"
 
-EXPOSE 9090
+EXPOSE 9090 9093
 
 ENTRYPOINT ["/app/entrypoint-v2.sh"]

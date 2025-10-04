@@ -363,13 +363,22 @@ const server = http.createServer(async (req, res) => {
       }));
     }
     
-    // Parse request body
-    const chunks = [];
-    for await (const c of req) chunks.push(c);
-    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
-    const method = body?.method;
+    // Parse request body safely
+    let body = {};
+    try {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      body = raw ? JSON.parse(raw) : {};
+    } catch (err) {
+      logger.trackError(err, { context: 'body_parse', note: 'Invalid JSON in request body' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+      return;
+    }
     
-    logger.log('DEBUG', `Request: ${method}`, { clientId, tool: body?.params?.name });
+    const method = body?.method || null;
+
     
     // Handle initialize
     if (method === 'initialize') {

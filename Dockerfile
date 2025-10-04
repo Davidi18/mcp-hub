@@ -2,10 +2,9 @@ FROM node:22-alpine
 
 RUN apk add --no-cache bash gettext
 
-# Global MCP tools
+# Global MCP tools (WordPress only)
 RUN npm i -g mcp-proxy@latest \
-             @automattic/mcp-wordpress-remote@latest \
-             dataforseo-mcp-server@latest
+             @automattic/mcp-wordpress-remote@latest
 
 WORKDIR /app
 

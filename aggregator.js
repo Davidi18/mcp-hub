@@ -1,4 +1,4 @@
-// MCP Hub - Unified WordPress & DataForSEO Aggregator
+// MCP Hub - WordPress-only Aggregator
 // Single endpoint with client identification via header or query parameter
 
 import http from 'http';
@@ -16,7 +16,7 @@ const rateLimiter = new RateLimiter();
 const cacheManager = new CacheManager();
 const logger = new AnalyticsLogger();
 
-logger.log('INFO', 'MCP Hub starting', {
+logger.log('INFO', 'MCP Hub starting (WordPress only)', {
   port: PORT,
   authEnabled: !!AUTH_TOKEN
 });
@@ -142,43 +142,6 @@ async function rpc(upstreamUrl, body, clientId) {
   }
 }
 
-function mergeTools(wpList, dfsList) {
-  const wpTools = (wpList.result?.tools || []).map(t => ({
-    ...t, 
-    name: `wp/${t.name}`,
-    description: `[WordPress] ${t.description || t.name}`
-  }));
-  
-  const dfsTools = (dfsList.result?.tools || []).map(t => ({
-    ...t, 
-    name: `dfs/${t.name}`,
-    description: `[DataForSEO] ${t.description || t.name}`
-  }));
-  
-  return { 
-    jsonrpc: '2.0', 
-    id: wpList.id ?? dfsList.id ?? '1', 
-    result: { 
-      tools: [...wpTools, ...dfsTools],
-      _meta: {
-        wpToolsCount: wpTools.length,
-        dfsToolsCount: dfsTools.length,
-        totalTools: wpTools.length + dfsTools.length
-      }
-    } 
-  };
-}
-
-function chooseUpstreamByTool(name) {
-  if (name?.startsWith('wp/')) {
-    return { url: `http://127.0.0.1:9091/mcp`, rewritten: name.slice(3) };
-  }
-  if (name?.startsWith('dfs/')) {
-    return { url: `http://127.0.0.1:9092/mcp`, rewritten: name.slice(4) };
-  }
-  return { url: `http://127.0.0.1:9091/mcp`, rewritten: name };
-}
-
 const server = http.createServer(async (req, res) => {
   const requestStart = Date.now();
   
@@ -196,6 +159,7 @@ const server = http.createServer(async (req, res) => {
         authentication: AUTH_TOKEN ? 'enabled' : 'disabled',
         clientIdentification: ['X-Client-ID header', 'client query parameter'],
         registeredClients: Object.keys(clients).filter(k => !k.match(/^\d+$/)),
+        integration: 'WordPress only',
         features: {
           rateLimiting: true,
           caching: true,
@@ -233,20 +197,6 @@ const server = http.createServer(async (req, res) => {
         };
       } catch (e) {
         checks.wordpress = { status: 'down', error: e.message };
-      }
-      
-      // Check DataForSEO MCP
-      try {
-        const dfsRes = await fetch('http://127.0.0.1:9092/', {
-          headers: { 'Accept': 'application/json, text/event-stream' }
-        });
-        checks.dataforseo = {
-          status: dfsRes.ok ? 'ok' : 'error',
-          code: dfsRes.status,
-          text: dfsRes.ok ? 'ok' : await dfsRes.text().catch(() => '')
-        };
-      } catch (e) {
-        checks.dataforseo = { status: 'down', error: e.message };
       }
       
       res.writeHead(200, {'Content-Type':'application/json'});
@@ -316,7 +266,7 @@ const server = http.createServer(async (req, res) => {
         <html dir="rtl">
         <head>
           <meta charset="UTF-8">
-          <title>MCP Hub</title>
+          <title>MCP Hub - WordPress</title>
           <style>
             body { font-family: system-ui; max-width: 900px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
             .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; margin: 20px 0; border-radius: 12px; }
@@ -326,20 +276,21 @@ const server = http.createServer(async (req, res) => {
             .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
             .badge-green { background: #10b981; color: white; }
             .badge-red { background: #ef4444; color: white; }
+            .badge-blue { background: #3b82f6; color: white; }
             h1 { margin: 0; }
             h2 { color: #1e293b; margin-top: 0; }
           </style>
         </head>
         <body>
           <div class="hero">
-            <h1>MCP Hub <span class="badge badge-green">Single Endpoint</span></h1>
-            <p style="font-size: 18px; margin: 10px 0 0 0;">One endpoint, multiple clients. Secure, scalable, simple.</p>
+            <h1>MCP Hub <span class="badge badge-blue">WordPress</span></h1>
+            <p style="font-size: 18px; margin: 10px 0 0 0;">Single endpoint, multiple WordPress sites.</p>
           </div>
           
           <div class="endpoint">
             <h2>📍 Main Endpoint <span class="badge ${AUTH_TOKEN ? 'badge-red' : 'badge-green'}">${authStatus}</span></h2>
             <code>POST /mcp</code>
-            <p>Single unified endpoint for all MCP operations</p>
+            <p>Single unified endpoint for WordPress operations</p>
             
             <h3>Usage:</h3>
             <pre>POST /mcp
@@ -348,7 +299,11 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
 
 {
   "jsonrpc": "2.0",
-  "method": "initialize",
+  "method": "tools/call",
+  "params": {
+    "name": "list_posts",
+    "arguments": {}
+  },
   "id": "1"
 }</pre>
           </div>
@@ -357,10 +312,10 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
             <h2>✨ Features</h2>
             <ul>
               <li>✅ Single endpoint - no per-client URLs</li>
-              <li>✅ Flexible client identification</li>
-              <li>✅ ${AUTH_TOKEN ? 'Secured with single authentication token' : 'Open access'}</li>
+              <li>✅ WordPress-only integration</li>
+              <li>✅ ${AUTH_TOKEN ? 'Secured with authentication' : 'Open access'}</li>
               <li>✅ Rate Limiting per client</li>
-              <li>✅ Smart Caching (saves 80% on DataForSEO costs)</li>
+              <li>✅ Smart Caching</li>
               <li>✅ Real-time Analytics</li>
             </ul>
           </div>
@@ -373,7 +328,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
           <div class="endpoint">
             <h2>📊 Management Endpoints</h2>
             <p><code>GET /health</code> - Health check (public)</p>
-            <p><code>GET /debug/upstreams</code> - Check upstream services (requires auth)</p>
+            <p><code>GET /debug/upstreams</code> - Check WordPress proxy (requires auth)</p>
             <p><code>GET /clients</code> - List all clients ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
             <p><code>GET /stats</code> - Statistics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
             <p><code>GET /analytics</code> - Analytics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
@@ -450,7 +405,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
           serverInfo: {
             name: `MCP Hub - ${client.name}`,
             version: '3.0.0',
-            description: 'WordPress + DataForSEO with Rate Limiting, Caching & Analytics'
+            description: 'WordPress MCP with Rate Limiting, Caching & Analytics'
           }
         }
       };
@@ -464,16 +419,11 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
     // Handle tools/list
     if (method === 'tools/list') {
       try {
-        const [wpList, dfsList] = await Promise.all([
-          rpc(`http://127.0.0.1:9091/mcp`, body, clientId),
-          rpc(`http://127.0.0.1:9092/mcp`, body, clientId)
-        ]);
-        
-        const merged = mergeTools(wpList, dfsList);
+        const wpList = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
         logger.trackRequest({ clientId, method: 'tools/list', duration: Date.now() - requestStart, success: true });
         
         res.writeHead(200, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify(merged));
+        return res.end(JSON.stringify(wpList));
       } catch (error) {
         logger.log('ERROR', `tools/list failed: ${error.message}`, { clientId });
         res.writeHead(500, {'Content-Type':'application/json'});
@@ -539,10 +489,8 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
         return res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: cached.data }));
       }
       
-      // Forward to upstream
-      const { url, rewritten } = chooseUpstreamByTool(toolName);
-      const forwardBody = { ...body, params: { ...body.params, name: rewritten } };
-      const out = await rpc(url, forwardBody, clientId);
+      // Forward to WordPress
+      const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
       
       // Cache the result
       cacheManager.set(clientId, toolName, toolArgs, out.result);
@@ -582,6 +530,7 @@ server.listen(PORT, '0.0.0.0', () => {
     endpoint: '/mcp',
     authEnabled: !!AUTH_TOKEN,
     clients: Object.keys(clients).filter(k => !k.match(/^\d+$/)).length,
+    integration: 'WordPress only',
     features: ['single-endpoint', 'unified-auth', 'rate-limiting', 'caching', 'analytics']
   });
 });

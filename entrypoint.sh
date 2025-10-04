@@ -5,7 +5,7 @@ echo "🚀 Starting MCP Hub..."
 echo ""
 
 # Show configured clients
-echo "📋 Client Configuration:"
+echo "📋 WordPress Clients:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 CLIENT_COUNT=0
@@ -26,20 +26,6 @@ for i in {1..15}; do
     echo "     ├─ WordPress: ${!wp_url_var}"
     echo "     ├─ User: ${!wp_user_var}"
     echo "     └─ Endpoint: /${normalized_name}/mcp"
-    
-    # Start WordPress MCP for this client
-    port=$((9100 + i))
-    echo "     🔧 Starting WordPress MCP on port ${port}..."
-    
-    WP_API_URL="${!wp_url_var}" \
-    WP_API_USERNAME="${!wp_user_var}" \
-    WP_API_PASSWORD="${!wp_pass_var}" \
-    npx @automattic/mcp-wordpress-remote server \
-      --transport stdio 2>&1 | sed "s/^/     [WP-${client_name}] /" &
-    
-    # Save PID for cleanup
-    eval "WP${i}_PID=$!"
-    
     echo ""
   fi
 done
@@ -55,28 +41,15 @@ fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# DataForSEO check
-if [ -n "${DFS_USER:-}" ] && [ -n "${DFS_PASS:-}" ]; then
-  echo "📊 DataForSEO: Configured ✅"
-  echo "   User: ${DFS_USER}"
-  echo ""
-  
-  echo "🔧 Starting DataForSEO MCP (port 9092)..."
-  DATAFORSEO_USERNAME="$DFS_USER" \
-  DATAFORSEO_PASSWORD="$DFS_PASS" \
-  mcp-proxy --port 9092 --host 0.0.0.0 --stateless \
-      npx dataforseo-mcp-server &
-  DFS_PROXY_PID=$!
-  echo "   ✅ DataForSEO MCP started (PID: $DFS_PROXY_PID)"
-  echo ""
-else
-  echo "📊 DataForSEO: Not configured ⚠️"
-  echo "   Set DFS_USER and DFS_PASS to enable SEO tools"
-  echo ""
-fi
+# Start WordPress Dynamic Proxy (port 9091)
+echo "🔧 Starting WordPress Proxy (port 9091)..."
+node /app/wp-dynamic-proxy.js &
+WP_PROXY_PID=$!
+echo "   ✅ Started (PID: $WP_PROXY_PID)"
+echo ""
 
 # Wait for services
-echo "⏳ Waiting for upstream services..."
+echo "⏳ Waiting for WordPress proxy..."
 sleep 5
 echo ""
 
@@ -87,7 +60,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 echo "✅ Features:"
 echo "   • Single endpoint: /mcp"
-echo "   • Unified authentication"
+echo "   • WordPress integration only"
 echo "   • Rate Limiting"
 echo "   • Smart Caching"
 echo "   • Analytics Logging"
@@ -97,20 +70,9 @@ echo ""
 cleanup() {
   echo ""
   echo "🛑 Shutting down..."
-  
-  # Kill WordPress MCPs
-  for i in {1..15}; do
-    pid_var="WP${i}_PID"
-    if [ -n "${!pid_var:-}" ]; then
-      kill ${!pid_var} 2>/dev/null || true
-    fi
-  done
-  
-  # Kill DataForSEO MCP
-  if [ -n "${DFS_PROXY_PID:-}" ]; then
-    kill $DFS_PROXY_PID 2>/dev/null || true
+  if [ -n "${WP_PROXY_PID:-}" ]; then
+    kill $WP_PROXY_PID 2>/dev/null || true
   fi
-  
   exit 0
 }
 

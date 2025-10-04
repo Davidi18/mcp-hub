@@ -9,20 +9,20 @@ RUN npm i -g mcp-proxy@latest \
 
 WORKDIR /app
 
-# Copy all application files (only existing files)
+# Copy core application files
 COPY package.json /app/package.json
-COPY entrypoint-v2.sh /app/entrypoint-v2.sh
-COPY aggregator-v2.js /app/aggregator-v2.js
+COPY entrypoint.sh /app/entrypoint.sh
 COPY aggregator-v3.js /app/aggregator-v3.js
+COPY sse-transport.js /app/sse-transport.js
+COPY wp-dynamic-proxy.js /app/wp-dynamic-proxy.js
+
+# Copy utility modules
 COPY rate-limiter.js /app/rate-limiter.js
 COPY cache-manager.js /app/cache-manager.js
 COPY analytics-logger.js /app/analytics-logger.js
-COPY wp-dynamic-proxy.js /app/wp-dynamic-proxy.js
-COPY sse-transport.js /app/sse-transport.js
-COPY upstreams.template.json /app/upstreams.template.json
 
-# Make scripts executable
-RUN chmod +x /app/entrypoint-v2.sh
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
@@ -30,4 +30,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 EXPOSE 9090 9093
 
-ENTRYPOINT ["/app/entrypoint-v2.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]

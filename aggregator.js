@@ -8,7 +8,7 @@ import CacheManager from './cache-manager.js';
 import AnalyticsLogger from './analytics-logger.js';
 
 const PORT = 9090;
-const AUTH_TOKEN = process.env.PROXY_TOKEN || '';
+const AUTH_TOKEN = process.env.AUTH_TOKEN || process.env.PROXY_TOKEN || '';
 const MCP_VERSION = '2025-03-01';
 
 // Initialize modules

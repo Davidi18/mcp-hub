@@ -103,7 +103,7 @@ async function rpc(upstreamUrl, body, clientId) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'application/json, text/event-stream',
         'User-Agent': 'MCP-Hub/3.0',
         'X-Client-Number': client.id,
         'X-Client-Name': client.name
@@ -223,10 +223,13 @@ const server = http.createServer(async (req, res) => {
       
       // Check WordPress proxy
       try {
-        const wpRes = await fetch('http://127.0.0.1:9091/health');
+        const wpRes = await fetch('http://127.0.0.1:9091/health', {
+          headers: { 'Accept': 'application/json, text/event-stream' }
+        });
         checks.wordpress = {
           status: wpRes.ok ? 'ok' : 'error',
-          code: wpRes.status
+          code: wpRes.status,
+          text: wpRes.ok ? 'ok' : await wpRes.text().catch(() => '')
         };
       } catch (e) {
         checks.wordpress = { status: 'down', error: e.message };
@@ -234,10 +237,13 @@ const server = http.createServer(async (req, res) => {
       
       // Check DataForSEO MCP
       try {
-        const dfsRes = await fetch('http://127.0.0.1:9092/health');
+        const dfsRes = await fetch('http://127.0.0.1:9092/', {
+          headers: { 'Accept': 'application/json, text/event-stream' }
+        });
         checks.dataforseo = {
           status: dfsRes.ok ? 'ok' : 'error',
-          code: dfsRes.status
+          code: dfsRes.status,
+          text: dfsRes.ok ? 'ok' : await dfsRes.text().catch(() => '')
         };
       } catch (e) {
         checks.dataforseo = { status: 'down', error: e.message };

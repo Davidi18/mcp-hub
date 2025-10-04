@@ -147,6 +147,113 @@ function sendSSE(res, data) {
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://x');
+    
+    // Health check endpoint
+    if (pathname === '/health') {
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({
+        status: 'healthy',
+        version: '2.0.0',
+        uptime: process.uptime(),
+        clients: Object.keys(clientMapping).length,
+        endpoints: Object.keys(clientMapping).map(name => `/${name}/mcp`)
+      }));
+    }
+    
+    // Documentation endpoint
+    if (pathname === '/' || pathname === '/docs') {
+      res.writeHead(200, {'Content-Type':'text/html'});
+      return res.end(`
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+          <meta charset="UTF-8">
+          <title>MCP Hub - API Documentation</title>
+          <style>
+            body { font-family: system-ui; max-width: 800px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+            h1 { color: #333; }
+            .endpoint { background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+            .method { display: inline-block; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+            .post { background: #4CAF50; color: white; }
+            pre { background: #282c34; color: #abb2bf; padding: 15px; border-radius: 5px; overflow-x: auto; }
+          </style>
+        </head>
+        <body>
+          <h1>🌐 MCP Hub API v2.0</h1>
+          <p>Unified WordPress + DataForSEO MCP Server</p>
+          
+          <div class="endpoint">
+            <h2>Available Clients</h2>
+            <ul>
+              ${Object.keys(clientMapping).map(name => {
+                const num = clientMapping[name];
+                const url = process.env[`WP${num}_URL`] || 'not configured';
+                return `<li><code>/${name}/mcp</code> → ${url}</li>`;
+              }).join('')}
+            </ul>
+          </div>
+          
+          <div class="endpoint">
+            <h3><span class="method post">POST</span> /{client}/mcp</h3>
+            <p><strong>Initialize Connection:</strong></p>
+            <pre>{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-03-01",
+    "clientInfo": { "name": "n8n", "version": "1.0" }
+  }
+}</pre>
+          </div>
+          
+          <div class="endpoint">
+            <h3><span class="method post">POST</span> /{client}/mcp</h3>
+            <p><strong>List Available Tools:</strong></p>
+            <pre>{
+  "jsonrpc": "2.0",
+  "id": "2",
+  "method": "tools/list"
+}</pre>
+          </div>
+          
+          <div class="endpoint">
+            <h3><span class="method post">POST</span> /{client}/mcp</h3>
+            <p><strong>Call a Tool:</strong></p>
+            <pre>{
+  "jsonrpc": "2.0",
+  "id": "3",
+  "method": "tools/call",
+  "params": {
+    "name": "wp/wp_posts_search",
+    "arguments": {
+      "search": "SEO",
+      "per_page": 10
+    }
+  }
+}</pre>
+          </div>
+          
+          <div class="endpoint">
+            <h3>🔐 Authentication</h3>
+            <p>All requests require:</p>
+            <pre>Authorization: ${PROXY_TOKEN ? '[configured]' : '[not required]'}</pre>
+          </div>
+          
+          <div class="endpoint">
+            <h3>📊 Available Tools</h3>
+            <ul>
+              <li><strong>WordPress:</strong> 33 tools (prefix: <code>wp/</code>)</li>
+              <li><strong>DataForSEO:</strong> 61 tools (prefix: <code>dfs/</code>)</li>
+              <li><strong>Total:</strong> 94 tools</li>
+            </ul>
+          </div>
+        </body>
+        </html>
+      `);
+    }
+    
     const clientN = clientFromPath(pathname);
     
     // Endpoint validation

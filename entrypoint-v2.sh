@@ -25,7 +25,8 @@ for i in {1..15}; do
     echo "  ✅ Client ${i}: ${client_name}"
     echo "     ├─ WordPress: ${!wp_url_var}"
     echo "     ├─ User: ${wp_user}"
-    echo "     └─ Endpoint: /${normalized_name}/mcp"
+    echo "     ├─ JSON-RPC: /${normalized_name}/mcp"
+    echo "     └─ SSE (n8n): /${normalized_name}/sse"
     echo ""
   fi
 done
@@ -74,6 +75,13 @@ fi
 # Wait for services to initialize
 echo "⏳ Waiting for services to initialize..."
 sleep 5
+echo ""
+
+# Start SSE Transport on port 9093
+echo "🔌 Starting SSE Transport for n8n on port 9093..."
+node /app/sse-transport.js &
+SSE_TRANSPORT_PID=$!
+echo "   ✅ SSE Transport started (PID: $SSE_TRANSPORT_PID)"
 echo ""
 
 # Start aggregator on port 9090

@@ -2,7 +2,7 @@ FROM node:22-alpine
 
 RUN apk add --no-cache bash gettext
 
-# Global MCP tools (WordPress only)
+# Global MCP tools
 RUN npm i -g mcp-proxy@latest \
              @automattic/mcp-wordpress-remote@latest
 
@@ -12,7 +12,6 @@ WORKDIR /app
 COPY package.json /app/package.json
 COPY entrypoint.sh /app/entrypoint.sh
 COPY aggregator.js /app/aggregator.js
-COPY wp-dynamic-proxy.js /app/wp-dynamic-proxy.js
 COPY rate-limiter.js /app/rate-limiter.js
 COPY cache-manager.js /app/cache-manager.js
 COPY analytics-logger.js /app/analytics-logger.js

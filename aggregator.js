@@ -1,5 +1,5 @@
-// MCP Hub - WordPress-only Aggregator
-// Single endpoint with client identification via header or query parameter
+// MCP Hub - WordPress Aggregator
+// Routes to the correct WordPress MCP based on client ID
 
 import http from 'http';
 import { URL } from 'url';
@@ -16,7 +16,7 @@ const rateLimiter = new RateLimiter();
 const cacheManager = new CacheManager();
 const logger = new AnalyticsLogger();
 
-logger.log('INFO', 'MCP Hub starting (WordPress only)', {
+logger.log('INFO', 'MCP Hub starting (WordPress)', {
   port: PORT,
   authEnabled: !!AUTH_TOKEN
 });
@@ -34,12 +34,15 @@ function buildClientMapping() {
       const clientName = process.env[`CLIENT${i}_NAME`] || `client${i}`;
       const normalizedName = clientName.toLowerCase().replace(/[^a-z0-9]/g, '-');
       
+      const port = 9100 + i;
+      
       clients[normalizedName] = {
         id: i.toString(),
         name: clientName,
         wpUrl,
         wpUser,
-        wpPass
+        wpPass,
+        port  // Port where WordPress MCP is running
       };
       
       // Also map by number for backward compatibility
@@ -47,7 +50,8 @@ function buildClientMapping() {
       
       logger.log('INFO', `Client registered: ${clientName}`, {
         id: normalizedName,
-        wpUrl
+        wpUrl,
+        port
       });
     }
   }
@@ -59,19 +63,16 @@ const clients = buildClientMapping();
 
 // Extract client ID from request (header or query parameter)
 function getClientId(req, url) {
-  // Priority 1: X-Client-ID header
   const headerClient = req.headers['x-client-id'] || req.headers['x-client'];
   if (headerClient) {
     return headerClient.toLowerCase().trim();
   }
   
-  // Priority 2: ?client= query parameter
   const queryClient = url.searchParams.get('client');
   if (queryClient) {
     return queryClient.toLowerCase().trim();
   }
   
-  // Priority 3: Authorization header with client prefix (e.g., "Bearer client1:token")
   const auth = req.headers['authorization'];
   if (auth && auth.includes(':')) {
     const clientPart = auth.split(':')[0].replace(/^Bearer\s+/i, '');
@@ -81,61 +82,50 @@ function getClientId(req, url) {
   return null;
 }
 
-// Check authorization - one token for everything
 function authOk(req) {
-  if (!AUTH_TOKEN) return true; // No token set = open access
+  if (!AUTH_TOKEN) return true;
   const hdr = req.headers['authorization'];
   return hdr === AUTH_TOKEN || hdr === `Bearer ${AUTH_TOKEN}`;
 }
 
-async function rpc(upstreamUrl, body, clientId) {
+async function rpc(client, body) {
   const startTime = Date.now();
-  const client = clients[clientId];
-  
-  if (!client) {
-    throw new Error(`Unknown client: ${clientId}`);
-  }
-  
-  const urlWithClient = `${upstreamUrl}?client=${client.id}`;
+  const url = `http://127.0.0.1:${client.port}/mcp`;
   
   try {
-    const res = await fetch(urlWithClient, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-        'User-Agent': 'MCP-Hub/3.0',
-        'X-Client-Number': client.id,
-        'X-Client-Name': client.name
+        'User-Agent': 'MCP-Hub/3.0'
       },
       body: JSON.stringify(body),
     });
     
     if (!res.ok) {
       const errorText = await res.text().catch(() => '');
-      logger.log('ERROR', `Upstream error ${res.status}`, {
-        url: upstreamUrl,
+      logger.log('ERROR', `WordPress MCP error ${res.status}`, {
+        client: client.name,
+        port: client.port,
         status: res.status,
-        statusText: res.statusText,
-        clientId,
         errorBody: errorText.substring(0, 200)
       });
-      throw new Error(`Upstream HTTP ${res.status}: ${errorText.substring(0, 100)}`);
+      throw new Error(`WordPress MCP HTTP ${res.status}: ${errorText.substring(0, 100)}`);
     }
     
     const duration = Date.now() - startTime;
-    logger.trackPerformance('upstream_rpc', duration, {
-      upstreamUrl,
-      clientId,
+    logger.trackPerformance('wordpress_rpc', duration, {
+      client: client.name,
       method: body.method
     });
     
     return await res.json();
   } catch (error) {
     logger.trackError(error, {
-      operation: 'upstream_rpc',
-      upstreamUrl,
-      clientId,
+      operation: 'wordpress_rpc',
+      client: client.name,
+      port: client.port,
       method: body.method
     });
     throw error;
@@ -149,7 +139,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const { pathname } = url;
     
-    // Health check endpoint (public - no auth required)
+    // Health check
     if (pathname === '/health') {
       const health = {
         status: 'healthy',
@@ -159,7 +149,7 @@ const server = http.createServer(async (req, res) => {
         authentication: AUTH_TOKEN ? 'enabled' : 'disabled',
         clientIdentification: ['X-Client-ID header', 'client query parameter'],
         registeredClients: Object.keys(clients).filter(k => !k.match(/^\d+$/)),
-        integration: 'WordPress only',
+        integration: 'WordPress',
         features: {
           rateLimiting: true,
           caching: true,
@@ -176,7 +166,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(health, null, 2));
     }
     
-    // Debug endpoint to check upstream services
+    // Debug upstreams
     if (pathname === '/debug/upstreams') {
       if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
@@ -185,25 +175,26 @@ const server = http.createServer(async (req, res) => {
       
       const checks = {};
       
-      // Check WordPress proxy
-      try {
-        const wpRes = await fetch('http://127.0.0.1:9091/health', {
-          headers: { 'Accept': 'application/json, text/event-stream' }
-        });
-        checks.wordpress = {
-          status: wpRes.ok ? 'ok' : 'error',
-          code: wpRes.status,
-          text: wpRes.ok ? 'ok' : await wpRes.text().catch(() => '')
-        };
-      } catch (e) {
-        checks.wordpress = { status: 'down', error: e.message };
+      for (const [key, client] of Object.entries(clients)) {
+        if (key.match(/^\d+$/)) continue; // Skip numeric keys
+        
+        try {
+          const wpRes = await fetch(`http://127.0.0.1:${client.port}/health`);
+          checks[key] = {
+            status: wpRes.ok ? 'ok' : 'error',
+            code: wpRes.status,
+            port: client.port
+          };
+        } catch (e) {
+          checks[key] = { status: 'down', error: e.message, port: client.port };
+        }
       }
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify(checks, null, 2));
     }
     
-    // Analytics endpoint (requires auth)
+    // Analytics
     if (pathname === '/analytics') {
       if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
@@ -217,7 +208,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(analytics, null, 2));
     }
     
-    // Stats endpoint (requires auth)
+    // Stats
     if (pathname === '/stats') {
       if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
@@ -236,7 +227,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(stats, null, 2));
     }
     
-    // Clients list endpoint (requires auth)
+    // Clients list
     if (pathname === '/clients') {
       if (!authOk(req)) {
         res.writeHead(401, {'Content-Type':'application/json'});
@@ -248,14 +239,15 @@ const server = http.createServer(async (req, res) => {
         .map(([key, client]) => ({
           id: key,
           name: client.name,
-          wpUrl: client.wpUrl
+          wpUrl: client.wpUrl,
+          port: client.port
         }));
       
       res.writeHead(200, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({ clients: clientList }, null, 2));
     }
     
-    // Documentation page (public)
+    // Documentation
     if (pathname === '/' || pathname === '/docs') {
       const clientList = Object.keys(clients).filter(k => !k.match(/^\d+$/)).join(', ');
       const authStatus = AUTH_TOKEN ? 'Required' : 'Open';
@@ -290,48 +282,18 @@ const server = http.createServer(async (req, res) => {
           <div class="endpoint">
             <h2>📍 Main Endpoint <span class="badge ${AUTH_TOKEN ? 'badge-red' : 'badge-green'}">${authStatus}</span></h2>
             <code>POST /mcp</code>
-            <p>Single unified endpoint for WordPress operations</p>
             
             <h3>Usage:</h3>
-            <pre>POST /mcp
-X-Client-ID: strudel
-${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: application/json
-
-{
-  "jsonrpc": "2.0",
-  "method": "tools/call",
-  "params": {
-    "name": "list_posts",
-    "arguments": {}
-  },
-  "id": "1"
-}</pre>
-          </div>
-          
-          <div class="endpoint">
-            <h2>✨ Features</h2>
-            <ul>
-              <li>✅ Single endpoint - no per-client URLs</li>
-              <li>✅ WordPress-only integration</li>
-              <li>✅ ${AUTH_TOKEN ? 'Secured with authentication' : 'Open access'}</li>
-              <li>✅ Rate Limiting per client</li>
-              <li>✅ Smart Caching</li>
-              <li>✅ Real-time Analytics</li>
-            </ul>
+            <pre>curl -X POST https://mcp.strudel.marketing/mcp \\
+  -H "X-Client-ID: strudel" \\
+  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN" \\
+  ' : ''}-H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":"1"}'</pre>
           </div>
           
           <div class="endpoint">
             <h2>🔐 Registered Clients</h2>
             <p><code>${clientList}</code></p>
-          </div>
-          
-          <div class="endpoint">
-            <h2>📊 Management Endpoints</h2>
-            <p><code>GET /health</code> - Health check (public)</p>
-            <p><code>GET /debug/upstreams</code> - Check WordPress proxy (requires auth)</p>
-            <p><code>GET /clients</code> - List all clients ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
-            <p><code>GET /stats</code> - Statistics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
-            <p><code>GET /analytics</code> - Analytics ${AUTH_TOKEN ? '(requires auth)' : ''}</p>
           </div>
         </body>
         </html>
@@ -343,12 +305,11 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
       res.writeHead(404, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
         error: 'not_found',
-        message: 'Use POST /mcp with X-Client-ID header or ?client= parameter',
+        message: 'Use POST /mcp with X-Client-ID header',
         availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
     
-    // Check authentication for MCP endpoint
     if (!authOk(req)) {
       logger.trackRequest({
         clientId: 'unknown',
@@ -358,25 +319,22 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
       });
       
       res.writeHead(401, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({
-        error:'unauthorized', 
-        message: 'Authentication required. Use: Authorization: Bearer YOUR-TOKEN'
-      }));
+      return res.end(JSON.stringify({error:'unauthorized'}));
     }
     
-    // Extract client ID
     const clientId = getClientId(req, url);
     
     if (!clientId) {
       res.writeHead(400, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
         error: 'missing_client',
-        message: 'Client identification required. Use X-Client-ID header or ?client= parameter',
+        message: 'Client identification required',
         availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
     
-    if (!clients[clientId]) {
+    const client = clients[clientId];
+    if (!client) {
       res.writeHead(404, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
         error: 'unknown_client',
@@ -395,7 +353,6 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
     
     // Handle initialize
     if (method === 'initialize') {
-      const client = clients[clientId];
       const response = {
         jsonrpc: '2.0',
         id: body.id || '1',
@@ -419,7 +376,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
     // Handle tools/list
     if (method === 'tools/list') {
       try {
-        const wpList = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
+        const wpList = await rpc(client, body);
         logger.trackRequest({ clientId, method: 'tools/list', duration: Date.now() - requestStart, success: true });
         
         res.writeHead(200, {'Content-Type':'application/json'});
@@ -429,10 +386,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
         res.writeHead(500, {'Content-Type':'application/json'});
         return res.end(JSON.stringify({
           jsonrpc: '2.0',
-          error: {
-            code: -32603,
-            message: error.message
-          }
+          error: { code: -32603, message: error.message }
         }));
       }
     }
@@ -442,7 +396,6 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
       const toolName = body?.params?.name;
       const toolArgs = body?.params?.arguments || {};
       
-      // Check rate limit
       const rateLimitResult = rateLimiter.checkLimit(clientId, toolName);
       
       if (!rateLimitResult.allowed) {
@@ -467,7 +420,6 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
         }));
       }
       
-      // Check cache
       const cached = cacheManager.get(clientId, toolName, toolArgs);
       
       if (cached) {
@@ -489,10 +441,8 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
         return res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: cached.data }));
       }
       
-      // Forward to WordPress
-      const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
+      const out = await rpc(client, body);
       
-      // Cache the result
       cacheManager.set(clientId, toolName, toolArgs, out.result);
       logger.trackRequest({ 
         clientId, 
@@ -512,7 +462,7 @@ ${AUTH_TOKEN ? 'Authorization: Bearer YOUR-TOKEN\n' : ''}Content-Type: applicati
     }
     
     // Default: forward to WordPress
-    const out = await rpc(`http://127.0.0.1:9091/mcp`, body, clientId);
+    const out = await rpc(client, body);
     logger.trackRequest({ clientId, method: method || 'unknown', duration: Date.now() - requestStart, success: true });
     
     res.writeHead(200, {'Content-Type':'application/json'});
@@ -530,7 +480,6 @@ server.listen(PORT, '0.0.0.0', () => {
     endpoint: '/mcp',
     authEnabled: !!AUTH_TOKEN,
     clients: Object.keys(clients).filter(k => !k.match(/^\d+$/)).length,
-    integration: 'WordPress only',
     features: ['single-endpoint', 'unified-auth', 'rate-limiting', 'caching', 'analytics']
   });
 });

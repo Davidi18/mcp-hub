@@ -32,15 +32,15 @@ for i in {1..15}; do
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
-    # Run WordPress MCP directly with environment variables
-    # Use npx to ensure we're using the globally installed package
+    # Run WordPress MCP with stdio-to-sse wrapper
+    # Using globally installed packages (no npx -y needed)
     WP_API_URL="${!wp_url_var}" \
     WP_API_USERNAME="${!wp_user_var}" \
     WP_API_PASSWORD="${!wp_pass_var}" \
-    npx -y --quiet @modelcontextprotocol/server-stdio-to-sse@latest \
+    server-stdio-to-sse \
       --port $port \
       --host 0.0.0.0 \
-      -- npx -y @automattic/mcp-wordpress-remote@latest 2>&1 | sed "s/^/     [WP-${client_name}] /" &
+      -- mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
     echo "     ✅ Started on :${port}"
     echo ""

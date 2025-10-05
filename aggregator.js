@@ -97,13 +97,14 @@ async function rpc(client, body) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/event-stream',
-        'Connection': 'close',
+        'Accept': 'application/json',
+        'Connection': 'keep-alive',
         'User-Agent': 'MCP-Hub/3.0'
       },
       body: JSON.stringify(body),
     });
 
+    const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
 
     if (!res.ok) {
@@ -116,23 +117,19 @@ async function rpc(client, body) {
       throw new Error(`WordPress MCP HTTP ${res.status}: ${text.substring(0, 100)}`);
     }
 
-    // אם זה נראה כמו event stream, נחתוך רק את התוכן הרלוונטי
-    if (text.startsWith('event:') || text.includes('data: {')) {
-      const match = text.match(/data:\s*(\{.*\})/s);
-      if (match && match[1]) {
-        const json = match[1].trim();
-        try {
-          const parsed = JSON.parse(json);
-          return parsed;
-        } catch (e) {
-          throw new Error(`Malformed JSON inside SSE for ${client.name}: ${json.substring(0, 200)}`);
-        }
-      }
-      throw new Error(`Invalid SSE format from WordPress MCP (${client.name}): ${text.substring(0, 200)}`);
+    // Parse JSON response
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseError) {
+      logger.log('ERROR', 'Failed to parse WordPress MCP response', {
+        client: client.name,
+        port: client.port,
+        contentType,
+        responsePreview: text.substring(0, 200)
+      });
+      throw new Error(`Invalid JSON response from WordPress MCP: ${text.substring(0, 100)}`);
     }
-
-    // אחרת נפרש כ־JSON רגיל
-    const data = JSON.parse(text);
 
     const duration = Date.now() - startTime;
     logger.trackPerformance('wordpress_rpc', duration, {
@@ -163,7 +160,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/health') {
       const health = {
         status: 'healthy',
-        version: '3.0.0',
+        version: '3.0.1',
         uptime: process.uptime(),
         endpoint: '/mcp',
         authentication: AUTH_TOKEN ? 'enabled' : 'disabled',
@@ -199,14 +196,24 @@ const server = http.createServer(async (req, res) => {
         if (key.match(/^\d+$/)) continue; // Skip numeric keys
         
         try {
-          const wpRes = await fetch(`http://127.0.0.1:${client.port}/health`);
+          const wpRes = await fetch(`http://127.0.0.1:${client.port}/health`, {
+            signal: AbortSignal.timeout(5000)
+          });
+          const healthData = await wpRes.json();
           checks[key] = {
             status: wpRes.ok ? 'ok' : 'error',
             code: wpRes.status,
-            port: client.port
+            port: client.port,
+            wpUrl: client.wpUrl,
+            health: healthData
           };
         } catch (e) {
-          checks[key] = { status: 'down', error: e.message, port: client.port };
+          checks[key] = { 
+            status: 'down', 
+            error: e.message, 
+            port: client.port,
+            wpUrl: client.wpUrl
+          };
         }
       }
       
@@ -306,14 +313,25 @@ const server = http.createServer(async (req, res) => {
             <h3>Usage:</h3>
             <pre>curl -X POST https://mcp.strudel.marketing/mcp \\
   -H "X-Client-ID: strudel" \\
-  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN"' : ''} \\
-  ' : ''}-H "Content-Type: application/json" \\
+  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN" \\' : ''}
+  -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","method":"tools/list","id":"1"}'</pre>
           </div>
           
           <div class="endpoint">
             <h2>🔐 Registered Clients</h2>
             <p><code>${clientList}</code></p>
+          </div>
+          
+          <div class="endpoint">
+            <h2>🔍 Debug Endpoints</h2>
+            <ul>
+              <li><code>GET /health</code> - Hub health</li>
+              <li><code>GET /debug/upstreams</code> - Check WordPress MCPs</li>
+              <li><code>GET /clients</code> - List clients</li>
+              <li><code>GET /stats?client=NAME</code> - Statistics</li>
+              <li><code>GET /analytics?minutes=60</code> - Analytics</li>
+            </ul>
           </div>
         </body>
         </html>
@@ -349,6 +367,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({
         error: 'missing_client',
         message: 'Client identification required',
+        hint: 'Use X-Client-ID header or ?client=NAME query parameter',
         availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
@@ -390,7 +409,7 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: { listChanged: false } },
           serverInfo: {
             name: `MCP Hub - ${client.name}`,
-            version: '3.0.0',
+            version: '3.0.1',
             description: 'WordPress MCP with Rate Limiting, Caching & Analytics'
           }
         }
@@ -415,17 +434,18 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, {'Content-Type':'application/json'});
         return res.end(JSON.stringify({
           jsonrpc: '2.0',
+          id: body.id,
           error: { code: -32603, message: error.message }
         }));
       }
     }
     
     // Handle tools/call with rate limiting and caching
-      if (method === 'tools/call') {
-        const toolName = body?.params?.name || 'unknown';
-        const toolArgs = body?.params?.arguments ?? {};
-        const normalizedArgs = Array.isArray(toolArgs) ? toolArgs : [toolArgs];
-      
+    if (method === 'tools/call') {
+      const toolName = body?.params?.name || 'unknown';
+      const toolArgs = body?.params?.arguments ?? {};
+      const normalizedArgs = Array.isArray(toolArgs) ? toolArgs : [toolArgs];
+    
       const rateLimitResult = rateLimiter.checkLimit(clientId, toolName);
       
       if (!rateLimitResult.allowed) {
@@ -446,6 +466,7 @@ const server = http.createServer(async (req, res) => {
         
         return res.end(JSON.stringify({
           jsonrpc: '2.0',
+          id: body.id,
           error: { code: -32000, message: `Rate limit exceeded: ${rateLimitResult.reason}` }
         }));
       }
@@ -471,32 +492,55 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: cached.data }));
       }
       
-      const out = await rpc(client, body);
-      
-      cacheManager.set(clientId, toolName, normalizedArgs, out.result);
-      logger.trackRequest({ 
-        clientId, 
-        method: 'tools/call', 
-        toolName, 
-        duration: Date.now() - requestStart, 
-        success: true, 
-        cached: false 
-      });
-      
-      res.writeHead(200, { 
-        'Content-Type':'application/json', 
-        'X-Cache': 'MISS',
-        'X-RateLimit-Remaining': rateLimitResult.clientRemaining
-      });
-      return res.end(JSON.stringify(out));
+      try {
+        const out = await rpc(client, body);
+        
+        if (out.result) {
+          cacheManager.set(clientId, toolName, normalizedArgs, out.result);
+        }
+        
+        logger.trackRequest({ 
+          clientId, 
+          method: 'tools/call', 
+          toolName, 
+          duration: Date.now() - requestStart, 
+          success: true, 
+          cached: false 
+        });
+        
+        res.writeHead(200, { 
+          'Content-Type':'application/json', 
+          'X-Cache': 'MISS',
+          'X-RateLimit-Remaining': rateLimitResult.clientRemaining
+        });
+        return res.end(JSON.stringify(out));
+      } catch (error) {
+        logger.log('ERROR', `tools/call failed: ${error.message}`, { clientId, toolName });
+        res.writeHead(500, {'Content-Type':'application/json'});
+        return res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: { code: -32603, message: error.message }
+        }));
+      }
     }
     
     // Default: forward to WordPress
-    const out = await rpc(client, body);
-    logger.trackRequest({ clientId, method: method || 'unknown', duration: Date.now() - requestStart, success: true });
-    
-    res.writeHead(200, {'Content-Type':'application/json'});
-    return res.end(JSON.stringify(out));
+    try {
+      const out = await rpc(client, body);
+      logger.trackRequest({ clientId, method: method || 'unknown', duration: Date.now() - requestStart, success: true });
+      
+      res.writeHead(200, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify(out));
+    } catch (error) {
+      logger.log('ERROR', `MCP request failed: ${error.message}`, { clientId, method });
+      res.writeHead(500, {'Content-Type':'application/json'});
+      return res.end(JSON.stringify({
+        jsonrpc: '2.0',
+        id: body.id || '1',
+        error: { code: -32603, message: error.message }
+      }));
+    }
     
   } catch (e) {
     logger.trackError(e, { pathname: req.url });

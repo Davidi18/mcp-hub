@@ -32,15 +32,14 @@ for i in {1..15}; do
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
-    # Run WordPress MCP with stdio-to-sse wrapper
-    # Using globally installed packages (no npx -y needed)
+    # Run WordPress MCP with mcp-proxy
     WP_API_URL="${!wp_url_var}" \
     WP_API_USERNAME="${!wp_user_var}" \
     WP_API_PASSWORD="${!wp_pass_var}" \
-    server-stdio-to-sse \
+    mcp-proxy \
       --port $port \
       --host 0.0.0.0 \
-      -- mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
+      mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
     echo "     ✅ Started on :${port}"
     echo ""

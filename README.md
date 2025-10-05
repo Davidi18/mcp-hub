@@ -1,402 +1,339 @@
-# MCP Hub - Single Endpoint Architecture
+# 🚀 WordPress MCP Hub - Multi-Client Edition
 
-**One endpoint, multiple clients. Secure, scalable, simple.**
+MCP Hub אחד שמנהל מספר אתרי WordPress של לקוחות שונים, עם Rate Limiting, Caching ו-Analytics מובנים.
 
-Multi-tenant MCP server that aggregates WordPress and DataForSEO tools with intelligent rate limiting, caching, and analytics.
+## 🎯 מה זה עושה?
 
-## 🎯 Architecture
+במקום להריץ MCP נפרד לכל לקוח, יש לך:
+- **נקודת קצה אחת**: `POST /mcp`
+- **זיהוי לקוח**: באמצעות `X-Client-ID` header או `?client=NAME`
+- **ניהול אוטומטי**: MCP Hub מנתב אוטומטית לאתר הנכון
 
-### Single Endpoint Design
-Instead of multiple per-client endpoints, MCP Hub uses **one unified endpoint** with flexible client identification:
+## 📋 דרישות מקדימות
 
-```
-Before (old):  POST /strudel/mcp, POST /caio/mcp, POST /teena/mcp...
-After (new):   POST /mcp  (with client identification)
-```
+- Docker
+- משתני סביבה של WordPress לכל לקוח
 
-**Benefits:**
-- ✅ Better security (no client names in URLs)
-- ✅ Easier to scale (no routing complexity)
-- ✅ Simpler configuration
-- ✅ Cleaner logs and monitoring
+## 🛠️ הגדרה מהירה
 
-## 🚀 Quick Start
+### 1. הגדר משתני סביבה
 
-### Using Header (Recommended)
+צור קובץ `.env`:
+
 ```bash
-curl -X POST https://mcp.strudel.marketing/mcp \
-  -H "Content-Type: application/json" \
-  -H "X-Client-ID: strudel" \
-  -d '{"jsonrpc":"2.0","method":"initialize","id":"1"}'
-```
-
-### Using Query Parameter
-```bash
-curl -X POST "https://mcp.strudel.marketing/mcp?client=strudel" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"initialize","id":"1"}'
-```
-
-### Using Combined Auth Header
-```bash
-curl -X POST https://mcp.strudel.marketing/mcp \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer strudel:your-token" \
-  -d '{"jsonrpc":"2.0","method":"initialize","id":"1"}'
-```
-
-## 📋 Configuration
-
-### Environment Variables
-
-**Client Configuration** (repeat for up to 15 clients):
-```bash
-# Client 1
-WP1_URL=https://example.com
+# Client 1 - Strudel
+WP1_URL=https://strudel.marketing/wp-json
 WP1_USER=admin
-WP1_APP_PASS=xxxx-xxxx-xxxx-xxxx
-CLIENT1_NAME=strudel
+WP1_APP_PASS=xxxx xxxx xxxx xxxx xxxx xxxx
+CLIENT1_NAME=Strudel
 
-# Client 2
-WP2_URL=https://another-site.com
+# Client 2 - Another Client
+WP2_URL=https://example.com/wp-json
 WP2_USER=admin
-WP2_APP_PASS=yyyy-yyyy-yyyy-yyyy
-CLIENT2_NAME=caio
+WP2_APP_PASS=yyyy yyyy yyyy yyyy yyyy yyyy
+CLIENT2_NAME=Example Corp
+
+# אופציונלי: הגנה באמצעות token
+AUTH_TOKEN=your-secret-token-here
 ```
 
-**DataForSEO Integration** (optional):
+### 2. בנה והרץ
+
 ```bash
-DFS_USER=your-dataforseo-username
-DFS_PASS=your-dataforseo-password
+# Build
+docker build -t wordpress-mcp-hub .
+
+# Run
+docker run -d \
+  --name wp-mcp-hub \
+  -p 9090:9090 \
+  --env-file .env \
+  wordpress-mcp-hub
 ```
 
-**Security** (optional):
+### 3. בדוק שהכל עובד
+
 ```bash
-PROXY_TOKEN=your-secure-token-here
+# בדיקת בריאות
+curl http://localhost:9090/health
+
+# רשימת לקוחות
+curl http://localhost:9090/clients
+
+# בדיקת WordPress MCPs
+curl http://localhost:9090/debug/upstreams
 ```
 
-## 🔌 Integration Examples
+## 📡 שימוש
 
-### n8n Workflow
-```javascript
-// HTTP Request Node
-{
-  "url": "https://mcp.strudel.marketing/mcp",
-  "method": "POST",
-  "headers": {
-    "X-Client-ID": "strudel",
-    "Content-Type": "application/json"
-  },
-  "body": {
-    "jsonrpc": "2.0",
-    "method": "tools/call",
-    "params": {
-      "name": "wp/create_post",
-      "arguments": {
-        "title": "My Post",
-        "content": "Post content"
-      }
-    },
-    "id": "1"
-  }
-}
-```
+### מ-n8n
 
-### Claude Desktop Config
+הוסף את ה-MCP ל-n8n:
+
 ```json
 {
   "mcpServers": {
-    "strudel-wordpress": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-everything"],
-      "env": {
-        "MCP_SERVER_URL": "https://mcp.strudel.marketing/mcp",
-        "MCP_HEADERS": "X-Client-ID: strudel"
-      }
+    "wordpress": {
+      "url": "https://mcp.yourdomain.com/mcp"
     }
   }
 }
 ```
 
-### Python Client
-```python
-import requests
+כשאתה קורא ל-tool, הוסף header:
 
-def call_mcp(client_id, method, params=None):
-    response = requests.post(
-        "https://mcp.strudel.marketing/mcp",
-        headers={
-            "X-Client-ID": client_id,
-            "Content-Type": "application/json"
-        },
-        json={
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params or {},
-            "id": "1"
-        }
-    )
-    return response.json()
-
-# Usage
-result = call_mcp("strudel", "tools/list")
-print(result)
+```javascript
+// בתוך HTTP Request node ב-n8n
+headers: {
+  "X-Client-ID": "strudel",  // או שם הלקוח שלך
+  "Authorization": "Bearer YOUR-TOKEN"  // אם הגדרת AUTH_TOKEN
+}
 ```
 
-## 📊 Management API
+### דוגמת קריאה ישירה
 
-### Health Check
-```bash
-GET /health
-```
-Returns system status, registered clients, and statistics.
-
-### List Clients (requires auth)
-```bash
-GET /clients
-Authorization: Bearer your-token
-```
-Returns all registered clients.
-
-### Per-Client Stats (requires auth)
-```bash
-GET /stats?client=strudel
-Authorization: Bearer your-token
-```
-Returns rate limiting, caching, and usage stats for a specific client.
-
-### Analytics (requires auth)
-```bash
-GET /analytics?minutes=60
-Authorization: Bearer your-token
-```
-Returns detailed analytics for the last N minutes.
-
-## ✨ Features
-
-### 1. Rate Limiting
-Per-client and per-tool rate limits to prevent abuse:
-- Global limit: 1000 requests/hour per client
-- DataForSEO tools: 100 requests/hour per client
-- Automatic retry-after headers
-
-### 2. Smart Caching
-Intelligent caching for expensive operations:
-- DataForSEO results cached for 24 hours
-- Saves up to 80% on API costs
-- Per-client cache isolation
-
-### 3. Analytics
-Real-time usage tracking:
-- Request counts and durations
-- Error rates and patterns
-- Cache hit rates
-- Rate limit violations
-
-### 4. Multi-Tenant Support
-Up to 15 WordPress clients with full isolation:
-- Separate credentials per client
-- Independent rate limits
-- Isolated caching
-- Per-client analytics
-
-## 🐳 Deployment
-
-### Docker Compose
-```yaml
-version: '3.8'
-services:
-  mcp-hub:
-    image: ghcr.io/davidi18/mcp-hub:latest
-    ports:
-      - "9090:9090"
-    environment:
-      # Client 1
-      - WP1_URL=https://site1.com
-      - WP1_USER=admin
-      - WP1_APP_PASS=xxxx-xxxx-xxxx-xxxx
-      - CLIENT1_NAME=strudel
-      
-      # Client 2
-      - WP2_URL=https://site2.com
-      - WP2_USER=admin
-      - WP2_APP_PASS=yyyy-yyyy-yyyy-yyyy
-      - CLIENT2_NAME=caio
-      
-      # DataForSEO
-      - DFS_USER=your-username
-      - DFS_PASS=your-password
-      
-      # Security
-      - PROXY_TOKEN=your-secure-token
-```
-
-### Coolify
-1. Add repository: `https://github.com/Davidi18/mcp-hub`
-2. Set environment variables in Coolify UI
-3. Deploy - automatic build and start
-
-## 🔒 Security
-
-### Client Identification Priority
-1. **X-Client-ID header** (recommended)
-2. **?client= query parameter** (fallback)
-3. **Authorization header** (Bearer client:token format)
-
-### Best Practices
-- Always use HTTPS in production
-- Set strong PROXY_TOKEN for management endpoints
-- Use X-Client-ID header (not in URL) for better security
-- Rotate WordPress application passwords regularly
-- Monitor rate limit violations
-
-## 🧪 Testing
-
-### Test Initialize
-```bash
-curl -X POST http://localhost:9090/mcp \
-  -H "X-Client-ID: strudel" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"initialize","id":"1"}'
-```
-
-### Test Tools List
-```bash
-curl -X POST http://localhost:9090/mcp \
-  -H "X-Client-ID: strudel" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":"1"}'
-```
-
-### Test WordPress Tool
 ```bash
 curl -X POST http://localhost:9090/mcp \
   -H "X-Client-ID: strudel" \
   -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc":"2.0",
-    "method":"tools/call",
-    "params":{
-      "name":"wp/list_posts",
-      "arguments":{"per_page":5}
-    },
-    "id":"1"
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "id": "1"
   }'
 ```
 
-## 🛠️ Development
+## 🔍 Endpoints זמינים
 
-### Local Setup
+| Endpoint | Method | תיאור |
+|----------|--------|-------|
+| `/mcp` | POST | נקודת הקצה הראשית של MCP |
+| `/health` | GET | בדיקת בריאות המערכת |
+| `/clients` | GET | רשימת כל הלקוחות |
+| `/debug/upstreams` | GET | בדיקת חיבור לכל WordPress MCP |
+| `/stats?client=NAME` | GET | סטטיסטיקות לפי לקוח |
+| `/analytics?minutes=60` | GET | אנליטיקס של 60 הדקות האחרונות |
+| `/` או `/docs` | GET | תיעוד אינטראקטיבי |
+
+## 🎨 תכונות
+
+### ✅ Rate Limiting
+- הגבלת קריאות לפי לקוח
+- הגנה מפני שימוש יתר
+- Headers: `X-RateLimit-Remaining`, `Retry-After`
+
+### ✅ Smart Caching
+- Cache של תוצאות זהות
+- Header: `X-Cache: HIT/MISS`
+- חיסכון בקריאות ל-WordPress
+
+### ✅ Analytics
+- מעקב אחר כל הבקשות
+- ביצועים לפי לקוח
+- שגיאות ו-timeouts
+
+### ✅ Multi-Client Support
+- עד 15 לקוחות בו-זמנית
+- כל לקוח עם MCP נפרד
+- ניתוב אוטומטי
+
+## 🏗️ ארכיטקטורה
+
+```
+┌─────────────┐
+│   n8n/AI    │
+└──────┬──────┘
+       │ POST /mcp + X-Client-ID: strudel
+       ↓
+┌──────────────────────────────┐
+│  Aggregator (Port 9090)      │
+│  - Route by Client ID        │
+│  - Rate Limiting             │
+│  - Caching                   │
+│  - Analytics                 │
+└──────┬───────────────────────┘
+       │
+       ├─→ WordPress MCP 1 (Port 9101) → strudel.marketing
+       ├─→ WordPress MCP 2 (Port 9102) → example.com
+       └─→ WordPress MCP 3 (Port 9103) → another.com
+```
+
+## 🔧 פתרון בעיות
+
+### הקונטיינר לא עולה
 ```bash
-# Clone repository
-git clone https://github.com/Davidi18/mcp-hub.git
-cd mcp-hub
+# בדוק לוגים
+docker logs wp-mcp-hub
 
-# Set environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Run with Docker
-docker build -t mcp-hub .
-docker run -p 9090:9090 --env-file .env mcp-hub
-
-# Or run directly with Node.js
-node aggregator.js
+# בדוק שמשתני הסביבה הוגדרו
+docker exec wp-mcp-hub env | grep WP
 ```
 
-### Project Structure
-```
-mcp-hub/
-├── aggregator.js          # Main server (single endpoint)
-├── wp-dynamic-proxy.js    # WordPress proxy
-├── rate-limiter.js        # Rate limiting logic
-├── cache-manager.js       # Caching logic
-├── analytics-logger.js    # Analytics tracking
-├── entrypoint.sh          # Startup script
-├── Dockerfile             # Container definition
-└── package.json           # Node.js dependencies
+### WordPress MCP לא עונה
+```bash
+# בדוק upstreams
+curl http://localhost:9090/debug/upstreams
+
+# בדוק logs של MCP ספציפי
+docker logs wp-mcp-hub | grep "WP-Strudel"
 ```
 
-## 📈 Monitoring
+### שגיאת Authentication
+- ודא ש-`AUTH_TOKEN` זהה בשרת ובקליינט
+- בדוק שה-header הוא `Authorization: Bearer YOUR-TOKEN`
 
-### Prometheus Metrics (Coming Soon)
+### לקוח לא נמצא
+```bash
+# בדוק רשימת לקוחות זמינים
+curl http://localhost:9090/clients
+
+# ודא שה-CLIENT_NAME תואם ל-X-Client-ID (lowercase, dashes במקום spaces)
 ```
-# HELP mcp_requests_total Total number of requests
-# TYPE mcp_requests_total counter
-mcp_requests_total{client="strudel",method="tools/call"} 1234
 
-# HELP mcp_cache_hits_total Cache hit rate
-# TYPE mcp_cache_hits_total counter
-mcp_cache_hits_total{client="strudel"} 987
+## 📊 מעקב וניטור
+
+### סטטיסטיקות בזמן אמת
+```bash
+# כל הלקוחות
+curl http://localhost:9090/stats
+
+# לקוח ספציפי
+curl http://localhost:9090/stats?client=strudel
 ```
 
-### Health Check Response
-```json
-{
-  "status": "healthy",
-  "version": "3.0.0",
-  "uptime": 86400,
-  "endpoint": "/mcp",
-  "clientIdentification": [
-    "X-Client-ID header",
-    "client query parameter"
-  ],
-  "registeredClients": [
-    "strudel",
-    "caio",
-    "teena"
-  ],
-  "features": {
-    "rateLimiting": true,
-    "caching": true,
-    "analytics": true,
-    "multiClient": true
-  },
-  "stats": {
-    "cache": {
-      "hits": 1234,
-      "misses": 567,
-      "hitRate": 68.5
+### Analytics
+```bash
+# 60 דקות אחרונות
+curl http://localhost:9090/analytics?minutes=60
+
+# 24 שעות אחרונות
+curl http://localhost:9090/analytics?minutes=1440
+```
+
+## 🔐 אבטחה
+
+1. **AUTH_TOKEN**: הוסף token סודי כדי להגן על ה-endpoint
+2. **HTTPS**: השתמש ב-reverse proxy (nginx/caddy) עם SSL
+3. **Firewall**: הגבל גישה רק ל-IP של n8n
+
+### דוגמת Nginx config:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name mcp.yourdomain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location / {
+        proxy_pass http://localhost:9090;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        
+        # הגבלת גישה
+        allow 1.2.3.4;  # n8n IP
+        deny all;
     }
-  }
 }
 ```
 
-## 🤝 Contributing
+## 🚀 שימוש עם n8n
 
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+### צור Workflow שמשתמש במספר אתרי WordPress
 
-## 📝 License
+```json
+{
+  "nodes": [
+    {
+      "name": "Get Posts from Strudel",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "https://mcp.yourdomain.com/mcp",
+        "method": "POST",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Client-ID",
+              "value": "strudel"
+            }
+          ]
+        },
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jsonrpc",
+              "value": "2.0"
+            },
+            {
+              "name": "method",
+              "value": "tools/call"
+            },
+            {
+              "name": "params",
+              "value": {
+                "name": "get_posts",
+                "arguments": {
+                  "per_page": 10
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+```
 
-MIT License - see LICENSE file for details.
+## 💡 טיפים והמלצות
 
-## 🔗 Links
+### זיהוי לקוח אוטומטי
+אם אתה רוצה שכל workflow יתנהל אוטומטית ללקוח אחד, השתמש ב-environment variable:
 
-- **Repository**: https://github.com/Davidi18/mcp-hub
-- **Issues**: https://github.com/Davidi18/mcp-hub/issues
-- **Discussions**: https://github.com/Davidi18/mcp-hub/discussions
+```bash
+# בהגדרת n8n
+N8N_DEFAULT_CLIENT_ID=strudel
+```
 
-## 💡 Why Single Endpoint?
+### Cache בהתאמה אישית
+ניתן להגדיר זמני cache שונים לכל tool ב-`cache-manager.js`
 
-Traditional multi-endpoint approaches have several issues:
+### Rate Limiting בהתאמה אישית
+ניתן להגדיר limits שונים לכל לקוח ב-`rate-limiter.js`
 
-1. **Security**: Client names visible in URLs leak information
-2. **Scaling**: Need to manage routing tables and load balancing per client
-3. **Configuration**: Complex nginx/proxy configurations
-4. **Monitoring**: Difficult to aggregate metrics across clients
-5. **Maintenance**: Changes require updating multiple endpoints
+## 📝 היסטוריית שינויים
 
-The single endpoint architecture solves all these issues by:
-- Using headers/parameters for client identification
-- Centralizing routing logic
-- Simplifying proxy configuration
-- Enabling easier monitoring and analytics
-- Supporting dynamic client addition without code changes
+### v3.0.1 (2025-10-05)
+- ✅ תיקון טיפול ב-JSON responses
+- ✅ שיפור error handling
+- ✅ תיקון הרצת WordPress MCPs דרך mcp-proxy
+- ✅ הוספת timeout ל-upstream checks
+
+### v3.0.0
+- 🎉 גרסה ראשונה עם תמיכה במספר לקוחות
+- Rate Limiting
+- Caching
+- Analytics
+
+## 🤝 תרומה
+
+אם מצאת בעיה או רוצה להציע שיפור:
+1. פתח Issue
+2. תאר את הבעיה בפירוט
+3. צרף לוגים אם אפשר
+
+## 📜 רישיון
+
+MIT License - ראה [LICENSE](LICENSE)
+
+## 🔗 קישורים שימושיים
+
+- [WordPress REST API Docs](https://developer.wordpress.org/rest-api/)
+- [MCP Protocol Spec](https://modelcontextprotocol.io/)
+- [n8n Documentation](https://docs.n8n.io/)
+- [Original WordPress MCP](https://github.com/Automattic/wordpress-mcp)
 
 ---
 
-**Made with ❤️ for the MCP community**
+Made with ❤️ for managing multiple WordPress sites efficiently

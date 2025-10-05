@@ -2,9 +2,6 @@ FROM node:22-alpine
 
 RUN apk add --no-cache bash gettext curl
 
-# Global MCP tools - only WordPress MCP, no mcp-proxy
-RUN npm i -g @automattic/mcp-wordpress-remote@latest
-
 WORKDIR /app
 
 # Copy application files
@@ -14,10 +11,10 @@ COPY aggregator.js /app/aggregator.js
 COPY rate-limiter.js /app/rate-limiter.js
 COPY cache-manager.js /app/cache-manager.js
 COPY analytics-logger.js /app/analytics-logger.js
-COPY wp-mcp-wrapper.js /app/wp-mcp-wrapper.js
+COPY wordpress-mcp-server.js /app/wordpress-mcp-server.js
 
 # Make scripts executable
-RUN chmod +x /app/entrypoint.sh /app/wp-mcp-wrapper.js
+RUN chmod +x /app/entrypoint.sh /app/wordpress-mcp-server.js
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

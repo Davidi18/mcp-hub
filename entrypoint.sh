@@ -32,14 +32,16 @@ for i in {1..15}; do
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
-    # Run WordPress MCP with mcp-proxy in SSE mode (stateful)
+    # Run WordPress MCP with mcp-proxy in STATELESS streamable HTTP mode
+    # This is critical - stateless mode means each request is independent
     WP_API_URL="${!wp_url_var}" \
     WP_API_USERNAME="${!wp_user_var}" \
     WP_API_PASSWORD="${!wp_pass_var}" \
     mcp-proxy \
       --port $port \
       --host 0.0.0.0 \
-      --server sse \
+      --server stream \
+      --stateless \
       mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
     echo "     ✅ Started on :${port}"

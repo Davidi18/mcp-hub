@@ -25,17 +25,22 @@ for i in {1..15}; do
     echo "  ✅ Client ${i}: ${client_name}"
     echo "     ├─ WordPress: ${!wp_url_var}"
     echo "     ├─ User: ${!wp_user_var}"
-    echo "     └─ Endpoint: /${normalized_name}/mcp"
+    echo "     └─ ID: ${normalized_name}"
     
     # Start WordPress MCP for this client on port 9100+i
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
+    # Run mcp-wordpress-remote directly through mcp-proxy
     WP_API_URL="${!wp_url_var}" \
     WP_API_USERNAME="${!wp_user_var}" \
     WP_API_PASSWORD="${!wp_pass_var}" \
-    mcp-proxy --port $port --host 0.0.0.0 --stateless \
-      npx @automattic/mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
+    PORT=$port \
+    mcp-proxy \
+      --port $port \
+      --host 0.0.0.0 \
+      --stateless \
+      -- mcp-wordpress-remote 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
     echo "     ✅ Started on :${port}"
     echo ""
@@ -54,9 +59,9 @@ fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-# Wait for WordPress MCPs to start
+# Wait for WordPress MCPs to initialize
 echo "⏳ Waiting for WordPress MCPs to initialize..."
-sleep 8
+sleep 10
 echo ""
 
 # Start main aggregator (port 9090)

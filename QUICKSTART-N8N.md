@@ -1,339 +1,479 @@
-# 🚀 MCP Hub v2.0 - Quick Start
+# 🚀 Quick Start - n8n Integration
 
-## מה השתנה? 🎯
+הדרכה מהירה לחיבור WordPress MCP Hub עם n8n.
 
-### הגרסה החדשה כוללת:
-✅ **Endpoint דינמי אחד** - `/sse` עם 3 דרכים לציין לקוח  
-✅ **הוספת לקוחות דרך ENV בלבד** - אין קוד קשיח  
-✅ **פרטי גישה דינמיים** - הכל מתוך משתני סביבה  
-✅ **ניקיון קוד** - הוסרו קבצים ישנים  
+## 📋 דרישות
 
----
+- Docker מותקן
+- n8n instance (ענן או self-hosted)
+- Application Passwords מ-WordPress
 
-## הגדרת לקוחות (Environment Variables)
+## ⚡ התקנה ב-3 צעדים
+
+### 1️⃣ הגדר משתני סביבה
+
+צור קובץ `.env`:
 
 ```bash
-# Authentication
-PROXY_TOKEN=your_secure_token
-
-# DataForSEO (אופציונלי)
-DFS_USER=your_dataforseo_email
-DFS_PASS=your_dataforseo_api_key
-
 # Client 1
-WP1_URL=https://site1.com
-WP1_USER=admin@site1.com
-WP1_APP_PASS=xxxx xxxx xxxx xxxx
-CLIENT1_NAME=Site1  # אופציונלי - אם לא מוגדר יהיה "client1"
+WP1_URL=https://yoursite.com/wp-json
+WP1_USER=admin
+WP1_APP_PASS=xxxx xxxx xxxx xxxx xxxx xxxx
+CLIENT1_NAME=Your Company
 
-# Client 2
-WP2_URL=https://acme.com
-WP2_USER=admin@acme.com
-WP2_APP_PASS=yyyy yyyy yyyy yyyy
-CLIENT2_NAME=AcmeCorp
+# Client 2 (אופציונלי)
+WP2_URL=https://client2.com/wp-json
+WP2_USER=admin
+WP2_APP_PASS=yyyy yyyy yyyy yyyy yyyy yyyy
+CLIENT2_NAME=Client 2
 
-# Client 3
-WP3_URL=https://techstartup.com
-WP3_USER=admin@techstartup.com
-WP3_APP_PASS=zzzz zzzz zzzz zzzz
-CLIENT3_NAME=TechStartup
-
-# ... עד 15 לקוחות
+# Security (מומלץ מאוד!)
+AUTH_TOKEN=your-random-secret-token-here
 ```
 
----
-
-## 3 דרכים להשתמש ב-SSE Endpoint
-
-### דרך 1: Query Parameter (מומלץ ל-n8n) ⭐
+### 2️⃣ הרץ Docker Container
 
 ```bash
-POST https://mcp.your-domain.com/sse?client=acmecorp
-Authorization: your_token
+docker run -d \
+  --name wp-mcp-hub \
+  -p 9090:9090 \
+  --restart unless-stopped \
+  --env-file .env \
+  ghcr.io/davidi18/wordpress-mcp:latest
 ```
 
-**יתרונות:**
-- ✅ Endpoint אחד לכל הלקוחות
-- ✅ קל להגדיר ב-n8n
-- ✅ קל לשנות לקוח
+או עם Docker Compose:
 
-### דרך 2: HTTP Header
+```yaml
+version: '3.8'
+services:
+  wp-mcp-hub:
+    image: ghcr.io/davidi18/wordpress-mcp:latest
+    container_name: wp-mcp-hub
+    ports:
+      - "9090:9090"
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
 
 ```bash
-POST https://mcp.your-domain.com/sse
-Authorization: your_token
-X-Client-ID: acmecorp
+docker-compose up -d
 ```
 
-### דרך 3: Path (תמיכה לאחור)
+### 3️⃣ בדוק שהכל עובד
 
 ```bash
-POST https://mcp.your-domain.com/acmecorp/sse
-Authorization: your_token
+# Health check
+curl http://localhost:9090/health | jq
+
+# רשימת לקוחות
+curl http://localhost:9090/clients | jq
+
+# בדיקת WordPress connections
+curl http://localhost:9090/debug/upstreams | jq
 ```
 
----
+## 🔗 חיבור ל-n8n
 
-## הגדרה ב-n8n
+### אופציה A: HTTP Request Node (פשוט)
 
-### אופציה 1: Endpoint אוניברסלי (מומלץ)
+1. צור HTTP Request node חדש
+2. הגדר:
+   - **Method**: POST
+   - **URL**: `http://your-server:9090/mcp`
+   - **Authentication**: None (או Bearer Token אם הגדרת AUTH_TOKEN)
+   - **Headers**:
+     - `X-Client-ID`: `your-company` (שם הלקוח שלך ב-lowercase)
+     - `Content-Type`: `application/json`
+   - **Body**:
+     ```json
+     {
+       "jsonrpc": "2.0",
+       "method": "tools/list",
+       "id": "1"
+     }
+     ```
+
+### אופציה B: MCP Client Node (מתקדם)
+
+אם n8n תומך ב-MCP natively:
 
 ```json
 {
   "mcpServers": {
-    "mcp-hub-acme": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/sse?client=acmecorp",
+    "wordpress": {
+      "url": "http://your-server:9090/mcp",
       "headers": {
-        "Authorization": "your_proxy_token"
-      }
-    },
-    "mcp-hub-site1": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/sse?client=site1",
-      "headers": {
-        "Authorization": "your_proxy_token"
+        "X-Client-ID": "your-company",
+        "Authorization": "Bearer YOUR-TOKEN"
       }
     }
   }
 }
 ```
 
-### אופציה 2: Header-Based
+## 📡 דוגמאות שימוש
+
+### דוגמה 1: קבלת רשימת פוסטים
 
 ```json
 {
-  "mcpServers": {
-    "mcp-hub": {
-      "transport": "sse",
-      "url": "https://mcp.your-domain.com/sse",
-      "headers": {
-        "Authorization": "your_proxy_token",
-        "X-Client-ID": "acmecorp"
-      }
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "get_posts",
+    "arguments": {
+      "per_page": 10,
+      "status": "publish"
     }
-  }
+  },
+  "id": "1"
 }
 ```
 
----
+### דוגמה 2: יצירת פוסט חדש
 
-## בדיקה מהירה
-
-### רשימת לקוחות זמינים
-
-```bash
-curl https://mcp.your-domain.com/clients \
-  -H "Authorization: your_token"
-```
-
-תשובה:
 ```json
 {
-  "clients": [
-    {"name": "Site1", "id": "site1", "url": "https://site1.com"},
-    {"name": "AcmeCorp", "id": "acmecorp", "url": "https://acme.com"},
-    {"name": "TechStartup", "id": "techstartup", "url": "https://techstartup.com"}
-  ]
-}
-```
-
-### בדיקת חיבור
-
-```bash
-curl -X POST "https://mcp.your-domain.com/sse?client=acmecorp" \
-  -H "Authorization: your_token" \
-  -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": "1",
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2024-11-05",
-      "capabilities": {},
-      "clientInfo": {"name": "test", "version": "1.0.0"}
-    }
-  }'
-```
-
----
-
-## הוספת לקוח חדש
-
-### שלב 1: הוסף משתנים ב-Coolify/Docker
-
-```bash
-WP4_URL=https://newclient.com
-WP4_USER=admin@newclient.com
-WP4_APP_PASS=your_app_password
-CLIENT4_NAME=NewClient
-```
-
-### שלב 2: Redeploy
-
-הלקוח החדש יזוהה אוטומטית!
-
-### שלב 3: שימוש ב-n8n
-
-```
-https://mcp.your-domain.com/sse?client=newclient
-```
-
-**זהו!** אין צורך בשינוי קוד. 🎉
-
----
-
-## Endpoints זמינים
-
-| Endpoint | תיאור | דוגמה |
-|----------|------|-------|
-| `/health` | בדיקת תקינות | `GET /health` |
-| `/clients` | רשימת לקוחות | `GET /clients` (requires auth) |
-| `/sse` | SSE אוניברסלי | `POST /sse?client=name` |
-| `/sse` | SSE עם header | `POST /sse` + `X-Client-ID` header |
-| `/{client}/sse` | SSE path-based | `POST /acmecorp/sse` |
-| `/{client}/mcp` | JSON-RPC | `POST /acmecorp/mcp` |
-
----
-
-## כלים זמינים
-
-כל לקוח מקבל גישה ל:
-
-### WordPress (33 כלים)
-- `wp/wp_posts_search` - חיפוש פוסטים
-- `wp/wp_add_post` - יצירת פוסט
-- `wp/wp_update_post` - עדכון פוסט
-- `wp/wp_list_media` - רשימת מדיה
-- `wp/get_site_info` - מידע על האתר
-- ועוד 28 כלים...
-
-### DataForSEO (61 כלים)
-- `dfs/serp_organic_live_advanced` - ניתוח SERP
-- `dfs/keywords_data_google_ads_search_volume` - נפח חיפוש
-- `dfs/backlinks_backlinks` - ניתוח קישורים חוזרים
-- `dfs/content_analysis_search` - ניתוח תוכן
-- ועוד 57 כלים...
-
----
-
-## Troubleshooting
-
-### ❌ "Client not found"
-
-בדוק שהמשתנים מוגדרים נכון:
-```bash
-docker logs mcp-hub | grep "Client loaded"
-```
-
-אמור להראות:
-```
-✅ Client loaded: AcmeCorp (acmecorp)
-✅ Client loaded: Site1 (site1)
-```
-
-### ❌ "Unauthorized"
-
-וודא ש-`Authorization` header תואם ל-`PROXY_TOKEN`:
-```bash
-echo $PROXY_TOKEN
-```
-
-### ❌ "No tools available"
-
-בדוק ש-WordPress ו-DataForSEO רצים:
-```bash
-docker logs mcp-hub | grep -i "proxy\|dataforseo"
-```
-
----
-
-## דוגמאות שימוש ב-n8n
-
-### דוגמה 1: חיפוש פוסטים
-
-```javascript
-// In n8n MCP node
-{
+  "jsonrpc": "2.0",
   "method": "tools/call",
   "params": {
-    "name": "wp/wp_posts_search",
+    "name": "create_post",
     "arguments": {
-      "search": "marketing",
-      "per_page": 5
-    }
-  }
-}
-```
-
-### דוגמה 2: ניתוח SEO
-
-```javascript
-{
-  "method": "tools/call",
-  "params": {
-    "name": "dfs/serp_organic_live_advanced",
-    "arguments": {
-      "keyword": "digital marketing",
-      "location_name": "Israel"
-    }
-  }
-}
-```
-
-### דוגמה 3: יצירת פוסט חדש
-
-```javascript
-{
-  "method": "tools/call",
-  "params": {
-    "name": "wp/wp_add_post",
-    "arguments": {
-      "title": "פוסט חדש",
-      "content": "תוכן הפוסט...",
+      "title": "כותרת הפוסט",
+      "content": "תוכן הפוסט",
       "status": "draft"
     }
+  },
+  "id": "2"
+}
+```
+
+### דוגמה 3: עדכון פוסט קיים
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "update_post",
+    "arguments": {
+      "id": 123,
+      "title": "כותרת מעודכנת",
+      "status": "publish"
+    }
+  },
+  "id": "3"
+}
+```
+
+## 🎯 Workflow לדוגמה ב-n8n
+
+### Workflow: פרסום תוכן אוטומטי
+
+```
+┌─────────────┐     ┌──────────────┐     ┌────────────────┐
+│  Schedule   │────▶│  AI Generate │────▶│  WordPress MCP │
+│  Trigger    │     │    Content   │     │  Create Post   │
+└─────────────┘     └──────────────┘     └────────────────┘
+```
+
+**JSON של ה-Workflow**:
+
+```json
+{
+  "nodes": [
+    {
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "value": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "AI Generate Content",
+      "type": "n8n-nodes-base.openAi",
+      "position": [450, 300],
+      "parameters": {
+        "operation": "text",
+        "prompt": "Write a blog post about..."
+      }
+    },
+    {
+      "name": "Create WordPress Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [650, 300],
+      "parameters": {
+        "url": "http://mcp-server:9090/mcp",
+        "method": "POST",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Client-ID",
+              "value": "your-company"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR-TOKEN"
+            }
+          ]
+        },
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "jsonrpc",
+              "value": "2.0"
+            },
+            {
+              "name": "method",
+              "value": "tools/call"
+            },
+            {
+              "name": "params",
+              "value": {
+                "name": "create_post",
+                "arguments": {
+                  "title": "={{ $json.choices[0].message.content.split('\\n')[0] }}",
+                  "content": "={{ $json.choices[0].message.content }}",
+                  "status": "draft"
+                }
+              }
+            },
+            {
+              "name": "id",
+              "value": "1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Generate Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Generate Content": {
+      "main": [
+        [
+          {
+            "node": "Create WordPress Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   }
 }
 ```
 
+## 🔍 בדיקת תקינות
+
+### בדיקה 1: MCP Hub פעיל
+
+```bash
+curl http://localhost:9090/health
+```
+
+**תוצאה מצופה**:
+```json
+{
+  "status": "healthy",
+  "version": "3.0.1",
+  "registeredClients": ["your-company"],
+  "features": {
+    "rateLimiting": true,
+    "caching": true,
+    "analytics": true
+  }
+}
+```
+
+### בדיקה 2: חיבור ל-WordPress
+
+```bash
+curl http://localhost:9090/debug/upstreams
+```
+
+**תוצאה מצופה**:
+```json
+{
+  "your-company": {
+    "status": "ok",
+    "code": 200,
+    "port": 9101,
+    "wpUrl": "https://yoursite.com/wp-json"
+  }
+}
+```
+
+### בדיקה 3: קריאת Tools
+
+```bash
+curl -X POST http://localhost:9090/mcp \
+  -H "X-Client-ID: your-company" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/list",
+    "id": "1"
+  }' | jq
+```
+
+**תוצאה מצופה**: רשימת tools זמינים (get_posts, create_post, וכו')
+
+## 🔐 הגדרת HTTPS (Production)
+
+### עם Nginx
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name mcp.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/mcp.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mcp.yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:9090;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        
+        # הגבלת גישה (אופציונלי)
+        allow 1.2.3.4;  # IP של n8n
+        deny all;
+    }
+}
+```
+
+### עם Caddy (פשוט יותר!)
+
+```
+mcp.yourdomain.com {
+    reverse_proxy localhost:9090
+}
+```
+
+## 💡 טיפים
+
+### 1. שימוש במספר לקוחות באותו Workflow
+
+```javascript
+// בתוך Function node
+const clients = ['client1', 'client2', 'client3'];
+
+return clients.map(client => ({
+  json: {
+    url: 'http://mcp-server:9090/mcp',
+    headers: {
+      'X-Client-ID': client,
+      'Authorization': 'Bearer YOUR-TOKEN'
+    },
+    body: {
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        name: 'get_posts',
+        arguments: { per_page: 5 }
+      },
+      id: '1'
+    }
+  }
+}));
+```
+
+### 2. Error Handling
+
+```javascript
+// בתוך Function node אחרי HTTP Request
+if ($input.item.json.error) {
+  throw new Error(`MCP Error: ${$input.item.json.error.message}`);
+}
+
+return $input.item.json.result;
+```
+
+### 3. Caching חכם
+
+השתמש ב-cache של MCP Hub:
+- קריאות זהות יחזרו מהcache
+- Header `X-Cache: HIT` מציין שהתוצאה מה-cache
+- חוסך זמן וקריאות מיותרות ל-WordPress
+
+## 🆘 פתרון בעיות נפוצות
+
+### שגיאה: "Client not found"
+
+**פתרון**: בדוק ש-`X-Client-ID` תואם לשם שהגדרת ב-`CLIENT1_NAME` (lowercase, ללא רווחים)
+
+```bash
+# בדוק שמות לקוחות זמינים
+curl http://localhost:9090/clients
+```
+
+### שגיאה: "unauthorized"
+
+**פתרון**: הוסף את ה-`Authorization` header:
+
+```javascript
+headers: {
+  "Authorization": "Bearer YOUR-TOKEN"
+}
+```
+
+### שגיאה: "WordPress MCP error 500"
+
+**פתרון**: בדוק שה-Application Password תקין:
+
+```bash
+# בדוק חיבור ישיר ל-WordPress
+curl -u "admin:xxxx xxxx xxxx xxxx" \
+  https://yoursite.com/wp-json/wp/v2/posts
+```
+
+### WordPress MCP לא מגיב
+
+**פתרון**: בדוק logs:
+
+```bash
+docker logs wp-mcp-hub | grep "WP-Your Company"
+```
+
+## 📊 ניטור וסטטיסטיקות
+
+```bash
+# ביצועים ושימוש
+curl http://localhost:9090/stats | jq
+
+# אנליטיקס של השעה האחרונה
+curl http://localhost:9090/analytics?minutes=60 | jq
+```
+
 ---
 
-## יתרונות הגרסה החדשה
-
-### לפני v2.0:
-❌ Endpoint נפרד לכל לקוח  
-❌ צריך לעדכן קוד להוסיף לקוח  
-❌ פרטי גישה בקוד  
-
-### אחרי v2.0:
-✅ Endpoint אחד דינמי  
-✅ הוספת לקוח דרך ENV בלבד  
-✅ כל הפרטים דינמיים  
-✅ 3 דרכים לציין לקוח  
-✅ קוד נקי ומסודר  
-
----
-
-## סיכום
-
-**להוספת לקוח:**
-1. הוסף 4 משתנים ל-ENV (URL, USER, APP_PASS, NAME)
-2. Redeploy
-3. השתמש: `/sse?client=clientname`
-
-**לשימוש ב-n8n:**
-1. URL: `https://mcp.your-domain.com/sse?client=<name>`
-2. Headers: `Authorization: your_token`
-3. Transport: `SSE`
-
-**זהו!** 🎉
-
----
-
-## קישורים
-
-- **מדריך מפורט**: [n8n-integration.md](./n8n-integration.md)
-- **סקריפט בדיקה**: `./test-sse-transport.sh`
-- **בעיות**: [GitHub Issues](https://github.com/Davidi18/mcp-hub/issues)
+**צריך עזרה?** פתח Issue ב-GitHub או שלח לי הודעה! 🚀

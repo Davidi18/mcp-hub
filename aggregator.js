@@ -109,7 +109,7 @@ async function rpc(client, body) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        'Accept': 'application/json-rpc, application/json',        
         'Connection': 'keep-alive',
         'User-Agent': 'MCP-Hub/3.0'
       },

@@ -1,9 +1,9 @@
 FROM node:22-alpine
 
-RUN apk add --no-cache bash gettext
+RUN apk add --no-cache bash gettext curl
 
 # Global MCP tools
-RUN npm i -g mcp-proxy@latest \
+RUN npm i -g @modelcontextprotocol/server-stdio-to-sse@latest \
              @automattic/mcp-wordpress-remote@latest
 
 WORKDIR /app

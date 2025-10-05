@@ -50,6 +50,7 @@ async function wpRequest(endpoint, options = {}) {
 
 // MCP Tools definitions
 const tools = [
+  // Posts
   {
     name: 'wp_get_posts',
     description: 'Get WordPress posts with optional filters',
@@ -59,7 +60,9 @@ const tools = [
         per_page: { type: 'number', description: 'Number of posts to retrieve (max 100)', default: 10 },
         page: { type: 'number', description: 'Page number', default: 1 },
         search: { type: 'string', description: 'Search term' },
-        status: { type: 'string', description: 'Post status (publish, draft, etc)', default: 'publish' }
+        status: { type: 'string', description: 'Post status (publish, draft, etc)', default: 'publish' },
+        author: { type: 'number', description: 'Author ID' },
+        categories: { type: 'string', description: 'Category IDs (comma-separated)' }
       }
     }
   },
@@ -117,6 +120,8 @@ const tools = [
       required: ['id']
     }
   },
+
+  // Pages
   {
     name: 'wp_get_pages',
     description: 'Get WordPress pages',
@@ -124,10 +129,147 @@ const tools = [
       type: 'object',
       properties: {
         per_page: { type: 'number', description: 'Number of pages to retrieve', default: 10 },
-        page: { type: 'number', description: 'Page number', default: 1 }
+        page: { type: 'number', description: 'Page number', default: 1 },
+        search: { type: 'string', description: 'Search term' },
+        status: { type: 'string', description: 'Page status', default: 'publish' }
       }
     }
   },
+  {
+    name: 'wp_get_page',
+    description: 'Get a specific WordPress page by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Page ID', required: true }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_create_page',
+    description: 'Create a new WordPress page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Page title', required: true },
+        content: { type: 'string', description: 'Page content (HTML)', required: true },
+        status: { type: 'string', description: 'Page status (publish, draft)', default: 'draft' },
+        parent: { type: 'number', description: 'Parent page ID' }
+      },
+      required: ['title', 'content']
+    }
+  },
+  {
+    name: 'wp_update_page',
+    description: 'Update an existing WordPress page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Page ID', required: true },
+        title: { type: 'string', description: 'Page title' },
+        content: { type: 'string', description: 'Page content (HTML)' },
+        status: { type: 'string', description: 'Page status' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_delete_page',
+    description: 'Delete a WordPress page',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Page ID', required: true },
+        force: { type: 'boolean', description: 'Bypass trash and force deletion', default: false }
+      },
+      required: ['id']
+    }
+  },
+
+  // Media
+  {
+    name: 'wp_get_media',
+    description: 'Get WordPress media files',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        per_page: { type: 'number', description: 'Number of media items', default: 10 },
+        page: { type: 'number', description: 'Page number', default: 1 },
+        media_type: { type: 'string', description: 'Media type (image, video, etc)' }
+      }
+    }
+  },
+  {
+    name: 'wp_get_media_item',
+    description: 'Get a specific media item by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Media ID', required: true }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_upload_media',
+    description: 'Upload media file (base64 encoded)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: 'File name', required: true },
+        base64_content: { type: 'string', description: 'Base64 encoded file content', required: true },
+        title: { type: 'string', description: 'Media title' },
+        alt_text: { type: 'string', description: 'Alt text for images' }
+      },
+      required: ['filename', 'base64_content']
+    }
+  },
+
+  // Custom Post Types
+  {
+    name: 'wp_get_custom_posts',
+    description: 'Get posts from a custom post type',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_type: { type: 'string', description: 'Custom post type slug', required: true },
+        per_page: { type: 'number', description: 'Number of posts', default: 10 },
+        page: { type: 'number', description: 'Page number', default: 1 },
+        status: { type: 'string', description: 'Post status', default: 'publish' }
+      },
+      required: ['post_type']
+    }
+  },
+  {
+    name: 'wp_get_custom_post',
+    description: 'Get a specific custom post by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_type: { type: 'string', description: 'Custom post type slug', required: true },
+        id: { type: 'number', description: 'Post ID', required: true }
+      },
+      required: ['post_type', 'id']
+    }
+  },
+  {
+    name: 'wp_create_custom_post',
+    description: 'Create a new custom post',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_type: { type: 'string', description: 'Custom post type slug', required: true },
+        title: { type: 'string', description: 'Post title', required: true },
+        content: { type: 'string', description: 'Post content', required: true },
+        status: { type: 'string', description: 'Post status', default: 'draft' },
+        meta: { type: 'object', description: 'Custom meta fields (key-value pairs)' }
+      },
+      required: ['post_type', 'title', 'content']
+    }
+  },
+
+  // Taxonomy
   {
     name: 'wp_get_categories',
     description: 'Get WordPress categories',
@@ -153,6 +295,7 @@ const tools = [
 // Tool execution
 async function executeTool(name, args) {
   switch (name) {
+    // Posts
     case 'wp_get_posts': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
@@ -160,9 +303,11 @@ async function executeTool(name, args) {
         status: args.status || 'publish'
       });
       if (args.search) params.append('search', args.search);
+      if (args.author) params.append('author', String(args.author));
+      if (args.categories) params.append('categories', args.categories);
       
       const posts = await wpRequest(`/wp/v2/posts?${params}`);
-      return { posts: posts.map(p => ({ id: p.id, title: p.title.rendered, excerpt: p.excerpt.rendered, date: p.date })) };
+      return { posts: posts.map(p => ({ id: p.id, title: p.title.rendered, excerpt: p.excerpt.rendered, date: p.date, link: p.link })) };
     }
 
     case 'wp_get_post': {
@@ -208,21 +353,168 @@ async function executeTool(name, args) {
     }
 
     case 'wp_delete_post': {
-      const result = await wpRequest(`/wp/v2/posts/${args.id}?force=${args.force || false}`, {
+      await wpRequest(`/wp/v2/posts/${args.id}?force=${args.force || false}`, {
         method: 'DELETE'
       });
       return { deleted: true, id: args.id };
     }
 
+    // Pages
     case 'wp_get_pages': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
-        page: String(args.page || 1)
+        page: String(args.page || 1),
+        status: args.status || 'publish'
       });
+      if (args.search) params.append('search', args.search);
+      
       const pages = await wpRequest(`/wp/v2/pages?${params}`);
       return { pages: pages.map(p => ({ id: p.id, title: p.title.rendered, link: p.link })) };
     }
 
+    case 'wp_get_page': {
+      const page = await wpRequest(`/wp/v2/pages/${args.id}`);
+      return {
+        id: page.id,
+        title: page.title.rendered,
+        content: page.content.rendered,
+        date: page.date,
+        status: page.status,
+        link: page.link
+      };
+    }
+
+    case 'wp_create_page': {
+      const page = await wpRequest('/wp/v2/pages', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: args.title,
+          content: args.content,
+          status: args.status || 'draft',
+          parent: args.parent
+        })
+      });
+      return { id: page.id, link: page.link, status: page.status };
+    }
+
+    case 'wp_update_page': {
+      const updates = {};
+      if (args.title) updates.title = args.title;
+      if (args.content) updates.content = args.content;
+      if (args.status) updates.status = args.status;
+
+      const page = await wpRequest(`/wp/v2/pages/${args.id}`, {
+        method: 'POST',
+        body: JSON.stringify(updates)
+      });
+      return { id: page.id, link: page.link, status: page.status };
+    }
+
+    case 'wp_delete_page': {
+      await wpRequest(`/wp/v2/pages/${args.id}?force=${args.force || false}`, {
+        method: 'DELETE'
+      });
+      return { deleted: true, id: args.id };
+    }
+
+    // Media
+    case 'wp_get_media': {
+      const params = new URLSearchParams({
+        per_page: String(args.per_page || 10),
+        page: String(args.page || 1)
+      });
+      if (args.media_type) params.append('media_type', args.media_type);
+      
+      const media = await wpRequest(`/wp/v2/media?${params}`);
+      return { 
+        media: media.map(m => ({ 
+          id: m.id, 
+          title: m.title.rendered, 
+          url: m.source_url,
+          media_type: m.media_type,
+          mime_type: m.mime_type
+        })) 
+      };
+    }
+
+    case 'wp_get_media_item': {
+      const media = await wpRequest(`/wp/v2/media/${args.id}`);
+      return {
+        id: media.id,
+        title: media.title.rendered,
+        url: media.source_url,
+        media_type: media.media_type,
+        mime_type: media.mime_type,
+        alt_text: media.alt_text
+      };
+    }
+
+    case 'wp_upload_media': {
+      const buffer = Buffer.from(args.base64_content, 'base64');
+      const media = await wpRequest('/wp/v2/media', {
+        method: 'POST',
+        headers: {
+          'Content-Disposition': `attachment; filename="${args.filename}"`,
+          'Content-Type': 'application/octet-stream',
+          'Authorization': authHeader
+        },
+        body: buffer
+      });
+      
+      // Update title and alt text if provided
+      if (args.title || args.alt_text) {
+        const updates = {};
+        if (args.title) updates.title = args.title;
+        if (args.alt_text) updates.alt_text = args.alt_text;
+        
+        await wpRequest(`/wp/v2/media/${media.id}`, {
+          method: 'POST',
+          body: JSON.stringify(updates)
+        });
+      }
+      
+      return { id: media.id, url: media.source_url };
+    }
+
+    // Custom Post Types
+    case 'wp_get_custom_posts': {
+      const params = new URLSearchParams({
+        per_page: String(args.per_page || 10),
+        page: String(args.page || 1),
+        status: args.status || 'publish'
+      });
+      
+      const posts = await wpRequest(`/wp/v2/${args.post_type}?${params}`);
+      return { posts: posts.map(p => ({ id: p.id, title: p.title?.rendered || 'Untitled', link: p.link })) };
+    }
+
+    case 'wp_get_custom_post': {
+      const post = await wpRequest(`/wp/v2/${args.post_type}/${args.id}`);
+      return {
+        id: post.id,
+        title: post.title?.rendered || 'Untitled',
+        content: post.content?.rendered || '',
+        link: post.link,
+        meta: post.meta
+      };
+    }
+
+    case 'wp_create_custom_post': {
+      const postData = {
+        title: args.title,
+        content: args.content,
+        status: args.status || 'draft'
+      };
+      if (args.meta) postData.meta = args.meta;
+      
+      const post = await wpRequest(`/wp/v2/${args.post_type}`, {
+        method: 'POST',
+        body: JSON.stringify(postData)
+      });
+      return { id: post.id, link: post.link, status: post.status };
+    }
+
+    // Taxonomy
     case 'wp_get_categories': {
       const categories = await wpRequest(`/wp/v2/categories?per_page=${args.per_page || 100}`);
       return { categories: categories.map(c => ({ id: c.id, name: c.name, count: c.count })) };
@@ -262,8 +554,8 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: {} },
           serverInfo: {
             name: 'WordPress MCP Server',
-            version: '1.0.0',
-            description: 'Direct WordPress REST API integration'
+            version: '1.1.0',
+            description: 'Direct WordPress REST API integration - Posts, Pages, Media, Custom Post Types'
           }
         }
       }));

@@ -82,10 +82,22 @@ function getClientId(req, url) {
   return null;
 }
 
-function authOk(req) {
+function authOk(req, url) {
   if (!AUTH_TOKEN) return true;
+  
+  // Check Authorization header
   const hdr = req.headers['authorization'];
-  return hdr === AUTH_TOKEN || hdr === `Bearer ${AUTH_TOKEN}`;
+  if (hdr === AUTH_TOKEN || hdr === `Bearer ${AUTH_TOKEN}`) {
+    return true;
+  }
+  
+  // Check token in query parameter
+  const queryToken = url?.searchParams?.get('token');
+  if (queryToken === AUTH_TOKEN) {
+    return true;
+  }
+  
+  return false;
 }
 
 async function rpc(client, body) {
@@ -156,15 +168,16 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const { pathname } = url;
     
-    // Health check
+    // Health check (always public)
     if (pathname === '/health') {
       const health = {
         status: 'healthy',
-        version: '3.0.1',
+        version: '3.0.2',
         uptime: process.uptime(),
         endpoint: '/mcp',
         authentication: AUTH_TOKEN ? 'enabled' : 'disabled',
         clientIdentification: ['X-Client-ID header', 'client query parameter'],
+        authMethods: AUTH_TOKEN ? ['Authorization header', 'token query parameter'] : ['none'],
         registeredClients: Object.keys(clients).filter(k => !k.match(/^\d+$/)),
         integration: 'WordPress',
         features: {
@@ -183,17 +196,17 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(health, null, 2));
     }
     
-    // Debug upstreams
+    // Debug upstreams (requires auth)
     if (pathname === '/debug/upstreams') {
-      if (!authOk(req)) {
+      if (!authOk(req, url)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized'}));
+        return res.end(JSON.stringify({error:'unauthorized', hint: 'Use ?token=YOUR-TOKEN'}));
       }
       
       const checks = {};
       
       for (const [key, client] of Object.entries(clients)) {
-        if (key.match(/^\d+$/)) continue; // Skip numeric keys
+        if (key.match(/^\d+$/)) continue;
         
         try {
           const wpRes = await fetch(`http://127.0.0.1:${client.port}/health`, {
@@ -221,11 +234,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(checks, null, 2));
     }
     
-    // Analytics
+    // Analytics (requires auth)
     if (pathname === '/analytics') {
-      if (!authOk(req)) {
+      if (!authOk(req, url)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized'}));
+        return res.end(JSON.stringify({error:'unauthorized', hint: 'Use ?token=YOUR-TOKEN'}));
       }
       
       const minutes = parseInt(url.searchParams.get('minutes') || '60');
@@ -235,11 +248,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(analytics, null, 2));
     }
     
-    // Stats
+    // Stats (requires auth)
     if (pathname === '/stats') {
-      if (!authOk(req)) {
+      if (!authOk(req, url)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized'}));
+        return res.end(JSON.stringify({error:'unauthorized', hint: 'Use ?token=YOUR-TOKEN'}));
       }
       
       const clientId = url.searchParams.get('client');
@@ -254,11 +267,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify(stats, null, 2));
     }
     
-    // Clients list
+    // Clients list (requires auth)
     if (pathname === '/clients') {
-      if (!authOk(req)) {
+      if (!authOk(req, url)) {
         res.writeHead(401, {'Content-Type':'application/json'});
-        return res.end(JSON.stringify({error:'unauthorized'}));
+        return res.end(JSON.stringify({error:'unauthorized', hint: 'Use ?token=YOUR-TOKEN'}));
       }
       
       const clientList = Object.entries(clients)
@@ -274,7 +287,7 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({ clients: clientList }, null, 2));
     }
     
-    // Documentation
+    // Documentation (public)
     if (pathname === '/' || pathname === '/docs') {
       const clientList = Object.keys(clients).filter(k => !k.match(/^\d+$/)).join(', ');
       const authStatus = AUTH_TOKEN ? 'Required' : 'Open';
@@ -291,7 +304,7 @@ const server = http.createServer(async (req, res) => {
             .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px; margin: 20px 0; border-radius: 12px; }
             .endpoint { background: white; padding: 25px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
             code { background: #f1f5f9; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 14px; }
-            pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 8px; overflow-x: auto; }
+            pre { background: #1e293b; color: #e2e8f0; padding: 20px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
             .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
             .badge-green { background: #10b981; color: white; }
             .badge-red { background: #ef4444; color: white; }
@@ -310,10 +323,14 @@ const server = http.createServer(async (req, res) => {
             <h2>📍 Main Endpoint <span class="badge ${AUTH_TOKEN ? 'badge-red' : 'badge-green'}">${authStatus}</span></h2>
             <code>POST /mcp</code>
             
-            <h3>Usage:</h3>
-            <pre>curl -X POST https://mcp.strudel.marketing/mcp \\
-  -H "X-Client-ID: strudel" \\
-  ${AUTH_TOKEN ? '-H "Authorization: Bearer YOUR-TOKEN" \\' : ''}
+            <h3>Usage (n8n):</h3>
+            <pre>Endpoint: https://mcp.strudel.marketing/mcp?client=strudel${AUTH_TOKEN ? '&token=YOUR-TOKEN' : ''}
+Server Transport: HTTP Streamable
+Authentication: None
+Tools to Include: All</pre>
+
+            <h3>Usage (curl):</h3>
+            <pre>curl -X POST "https://mcp.strudel.marketing/mcp?client=strudel${AUTH_TOKEN ? '&token=YOUR-TOKEN' : ''}" \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","method":"tools/list","id":"1"}'</pre>
           </div>
@@ -326,11 +343,11 @@ const server = http.createServer(async (req, res) => {
           <div class="endpoint">
             <h2>🔍 Debug Endpoints</h2>
             <ul>
-              <li><code>GET /health</code> - Hub health</li>
-              <li><code>GET /debug/upstreams</code> - Check WordPress MCPs</li>
-              <li><code>GET /clients</code> - List clients</li>
-              <li><code>GET /stats?client=NAME</code> - Statistics</li>
-              <li><code>GET /analytics?minutes=60</code> - Analytics</li>
+              <li><code>GET /health</code> - Hub health (public)</li>
+              <li><code>GET /debug/upstreams${AUTH_TOKEN ? '?token=YOUR-TOKEN' : ''}</code> - Check WordPress MCPs</li>
+              <li><code>GET /clients${AUTH_TOKEN ? '?token=YOUR-TOKEN' : ''}</code> - List clients</li>
+              <li><code>GET /stats?client=NAME${AUTH_TOKEN ? '&token=YOUR-TOKEN' : ''}</code> - Statistics</li>
+              <li><code>GET /analytics?minutes=60${AUTH_TOKEN ? '&token=YOUR-TOKEN' : ''}</code> - Analytics</li>
             </ul>
           </div>
         </body>
@@ -343,12 +360,14 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(404, {'Content-Type':'application/json'});
       return res.end(JSON.stringify({
         error: 'not_found',
-        message: 'Use POST /mcp with X-Client-ID header',
+        message: 'Use POST /mcp with ?client=NAME parameter',
+        hint: AUTH_TOKEN ? 'Also add &token=YOUR-TOKEN for authentication' : null,
         availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
     
-    if (!authOk(req)) {
+    // Check authentication for MCP endpoint
+    if (!authOk(req, url)) {
       logger.trackRequest({
         clientId: 'unknown',
         method: 'AUTH_FAILED',
@@ -357,7 +376,11 @@ const server = http.createServer(async (req, res) => {
       });
       
       res.writeHead(401, {'Content-Type':'application/json'});
-      return res.end(JSON.stringify({error:'unauthorized'}));
+      return res.end(JSON.stringify({
+        error:'unauthorized',
+        message: 'Authentication required',
+        hint: 'Add &token=YOUR-TOKEN to the URL'
+      }));
     }
     
     const clientId = getClientId(req, url);
@@ -367,7 +390,8 @@ const server = http.createServer(async (req, res) => {
       return res.end(JSON.stringify({
         error: 'missing_client',
         message: 'Client identification required',
-        hint: 'Use X-Client-ID header or ?client=NAME query parameter',
+        hint: 'Use ?client=NAME query parameter',
+        example: `https://mcp.strudel.marketing/mcp?client=strudel${AUTH_TOKEN ? '&token=YOUR-TOKEN' : ''}`,
         availableClients: Object.keys(clients).filter(k => !k.match(/^\d+$/))
       }));
     }
@@ -382,7 +406,7 @@ const server = http.createServer(async (req, res) => {
       }));
     }
     
-    // Parse request body safely
+    // Parse request body
     let body = {};
     try {
       const chunks = [];
@@ -390,7 +414,7 @@ const server = http.createServer(async (req, res) => {
       const raw = Buffer.concat(chunks).toString('utf8');
       body = raw ? JSON.parse(raw) : {};
     } catch (err) {
-      logger.trackError(err, { context: 'body_parse', note: 'Invalid JSON in request body' });
+      logger.trackError(err, { context: 'body_parse' });
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
       return;
@@ -398,7 +422,6 @@ const server = http.createServer(async (req, res) => {
     
     const method = body?.method || null;
 
-    
     // Handle initialize
     if (method === 'initialize') {
       const response = {
@@ -409,7 +432,7 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: { listChanged: false } },
           serverInfo: {
             name: `MCP Hub - ${client.name}`,
-            version: '3.0.1',
+            version: '3.0.2',
             description: 'WordPress MCP with Rate Limiting, Caching & Analytics'
           }
         }
@@ -554,7 +577,7 @@ server.listen(PORT, '0.0.0.0', () => {
     endpoint: '/mcp',
     authEnabled: !!AUTH_TOKEN,
     clients: Object.keys(clients).filter(k => !k.match(/^\d+$/)).length,
-    features: ['single-endpoint', 'unified-auth', 'rate-limiting', 'caching', 'analytics']
+    features: ['single-endpoint', 'unified-auth', 'rate-limiting', 'caching', 'analytics', 'query-token-auth']
   });
 });
 

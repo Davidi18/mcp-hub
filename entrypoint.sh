@@ -9,7 +9,6 @@ echo "📋 WordPress Clients:"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 CLIENT_COUNT=0
-PIDS=()
 
 for i in {1..15}; do
   wp_url_var="WP${i}_URL"
@@ -33,26 +32,21 @@ for i in {1..15}; do
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
-    # Create a wrapper script for this client
-    cat > /tmp/start-wp-${i}.sh <<EOF
-#!/bin/bash
-export WP_API_URL="${!wp_url_var}"
-export WP_API_USERNAME="${!wp_user_var}"
-export WP_API_PASSWORD="${!wp_pass_var}"
-export MCP_SERVER_NAME="${client_name} WordPress MCP"
-
-exec npx -y @automattic/mcp-wordpress-remote --stdio 2>&1 | mcp-proxy --port ${port} --host 0.0.0.0 2>&1 | sed 's/^/[WP-${client_name}] /'
-EOF
+    # Run WordPress MCP directly with environment variables
+    # Use npx to ensure we're using the globally installed package
+    WP_API_URL="${!wp_url_var}" \
+    WP_API_USERNAME="${!wp_user_var}" \
+    WP_API_PASSWORD="${!wp_pass_var}" \
+    npx -y --quiet @modelcontextprotocol/server-stdio-to-sse@latest \
+      --port $port \
+      --host 0.0.0.0 \
+      -- npx -y @automattic/mcp-wordpress-remote@latest 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
-    chmod +x /tmp/start-wp-${i}.sh
-    
-    # Start the WordPress MCP with mcp-proxy wrapping stdio
-    /tmp/start-wp-${i}.sh &
-    PID=$!
-    PIDS+=($PID)
-    
-    echo "     ✅ Started on :${port} (PID: $PID)"
+    echo "     ✅ Started on :${port}"
     echo ""
+    
+    # Small delay to prevent race conditions
+    sleep 0.5
   fi
 done
 
@@ -70,16 +64,7 @@ echo ""
 
 # Wait for WordPress MCPs to initialize
 echo "⏳ Waiting for WordPress MCPs to initialize..."
-sleep 12
-echo ""
-
-# Check if all WordPress MCPs are still running
-echo "🔍 Checking WordPress MCP status..."
-for pid in "${PIDS[@]}"; do
-  if ! kill -0 $pid 2>/dev/null; then
-    echo "⚠️  Warning: WordPress MCP process $pid died"
-  fi
-done
+sleep 10
 echo ""
 
 # Start main aggregator (port 9090)
@@ -94,16 +79,5 @@ echo "   • Rate Limiting"
 echo "   • Smart Caching"
 echo "   • Analytics"
 echo ""
-
-# Cleanup function
-cleanup() {
-  echo "Shutting down WordPress MCPs..."
-  for pid in "${PIDS[@]}"; do
-    kill $pid 2>/dev/null || true
-  done
-  exit 0
-}
-
-trap cleanup SIGTERM SIGINT
 
 exec node /app/aggregator.js

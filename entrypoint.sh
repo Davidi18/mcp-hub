@@ -32,12 +32,12 @@ for i in {1..15}; do
     port=$((9100 + i))
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
-    # Run our custom HTTP wrapper (clean JSON-RPC, no SSE)
+    # Run our custom WordPress MCP server (direct REST API)
     WP_API_URL="${!wp_url_var}" \
     WP_API_USERNAME="${!wp_user_var}" \
     WP_API_PASSWORD="${!wp_pass_var}" \
     PORT=$port \
-    node /app/wp-mcp-wrapper.js 2>&1 | sed "s/^/     [WP-${client_name}] /" &
+    node /app/wordpress-mcp-server.js 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
     echo "     ✅ Started on :${port}"
     echo ""

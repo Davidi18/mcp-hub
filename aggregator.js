@@ -103,8 +103,7 @@ function authOk(req, url) {
 async function rpc(client, body) {
   const startTime = Date.now();
   const token = process.env.AUTH_TOKEN || process.env.PROXY_TOKEN || '';
-  const url = `http://127.0.0.1:${client.port}/mcp${token ? `?token=${token}` : ''}`;
-  
+  const url = `${client.wpUrl.replace(/\/$/, '')}/wp-json/wp/v2/mcp`;  
   try {
     const res = await fetch(url, {
       method: 'POST',

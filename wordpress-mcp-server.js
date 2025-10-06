@@ -707,13 +707,19 @@ async function executeTool(name, args) {
       if (args.description) updates.description = args.description;
       if (args.post !== undefined) updates.post = args.post;
     
-      const media = await wpRequest(`wp/v2/media/${args.id}`, {        
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updates)
-      });
+      const media = await wpRequest(`wp/v2/media/${args.id}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+        
+      body: JSON.stringify({
+        title: args.title,
+        alt_text: args.alt_text,
+        caption: args.caption,
+        description: args.description
+      })
+    });
     
       return { 
         id: media.id, 

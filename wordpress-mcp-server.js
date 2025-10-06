@@ -673,67 +673,61 @@ async function executeTool(name, args) {
       };
     }
 
-    case 'wp_upload_media': {
-      const buffer = Buffer.from(args.base64_content, 'base64');
-      const media = await wpRequest('/wp/v2/media', {
-        method: 'POST',
-        headers: {
-          'Content-Disposition': `attachment; filename="${args.filename}"`,
-          'Content-Type': 'application/octet-stream',
-          'Authorization': authHeader
-        },
-        body: buffer
-      });
-      
-      if (args.title || args.alt_text) {
-        const updates = {};
-        if (args.title) updates.title = args.title;
-        if (args.alt_text) updates.alt_text = args.alt_text;
-        
-        await wpRequest(`/wp/v2/media/${media.id}`, {
+      case 'wp_upload_media': {
+        const buffer = Buffer.from(args.base64_content, 'base64');
+        const media = await wpRequest('/wp/v2/media', {
           method: 'POST',
-          body: JSON.stringify(updates)
+          headers: {
+            'Content-Disposition': `attachment; filename="${args.filename}"`,
+            'Content-Type': 'application/octet-stream',
+            'Authorization': authHeader
+          },
+          body: buffer
         });
+        
+        if (args.title || args.alt_text) {
+          const updates = {};
+          if (args.title) updates.title = args.title;
+          if (args.alt_text) updates.alt_text = args.alt_text;
+          
+          await wpRequest(`/wp/v2/media/${media.id}`, {
+            method: 'POST',
+            body: JSON.stringify(updates)
+          });
+        }
+        
+        return { id: media.id, url: media.source_url };
       }
-      
-      return { id: media.id, url: media.source_url };
+  
+      case 'wp_update_media': {
+    const updates = {};
+  
+    if (args.title) updates.title = { raw: args.title };
+    if (args.alt_text !== undefined) updates.alt_text = args.alt_text;
+    if (args.caption) updates.caption = { raw: args.caption };
+    if (args.description) updates.description = { raw: args.description };
+    if (args.post !== undefined) updates.post = args.post;
+  
+    if (Object.keys(updates).length === 0) {
+      throw new Error('No fields to update. Provide at least one valid field.');
     }
-
-    case 'wp_update_media': {
-      // בונים גוף עדכון רק משדות אמיתיים
-      const updates = {};
-      if (typeof args.title === 'string' && args.title.trim() !== '') updates.title = args.title;
-      if (typeof args.alt_text === 'string' && args.alt_text.trim() !== '') updates.alt_text = args.alt_text;
-      if (typeof args.caption === 'string' && args.caption.trim() !== '') updates.caption = args.caption;
-      if (typeof args.description === 'string' && args.description.trim() !== '') updates.description = args.description;
-      if (typeof args.post === 'number') updates.post = args.post;
-    
-      // קונטקסט עריכה עוזר למארחים מסוימים
-      updates.context = 'edit';
-    
-      // הגנה מפני בקשה ריקה
-      const keys = Object.keys(updates).filter(k => k !== 'context');
-      if (keys.length === 0) {
-        throw new Error('No fields to update. Provide at least one of: title, alt_text, caption, description, post');
-      }
-    
-      // קריאה זהה ללוגיקה שעבדה לך ב־curl
-      const media = await wpRequest(`/wp/v2/media/${args.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json; charset=UTF-8',
-          'Authorization': authHeader
-        },
-        body: JSON.stringify(updates)
-      });
-    
-      return {
-        id: media.id,
-        url: media.source_url,
-        title: media.title?.rendered || media.title || '',
-        alt_text: media.alt_text || ''
-      };
-    }
+  
+    const media = await wpRequest(`/wp/v2/media/${args.id}?context=edit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Authorization': authHeader
+      },
+      body: JSON.stringify(updates)
+    });
+  
+    return { 
+      id: media.id, 
+      url: media.source_url,
+      title: media.title?.rendered || media.title?.raw || media.title,
+      alt_text: media.alt_text 
+    };
+  }
 
     case 'wp_delete_media': {
       await wpRequest(`/wp/v2/media/${args.id}?force=${args.force || false}`, {

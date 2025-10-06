@@ -102,8 +102,8 @@ function authOk(req, url) {
 
 async function rpc(client, body) {
   const startTime = Date.now();
-  const url = `http://127.0.0.1:${client.port}/mcp`;
-
+  const url = `http://127.0.0.1:9090/mcp`;
+  
   try {
     const res = await fetch(url, {
       method: 'POST',

@@ -696,7 +696,7 @@ async function executeTool(name, args) {
           });
         }
         
-        return { id: media.id, url: media.source_url };
+        return result;
       }
   
       case 'wp_update_media': {

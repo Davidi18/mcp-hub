@@ -13,9 +13,6 @@ COPY cache-manager.js /app/cache-manager.js
 COPY analytics-logger.js /app/analytics-logger.js
 COPY wordpress-mcp-server.js /app/wordpress-mcp-server.js
 
-# Copy tools directory
-COPY tools /app/tools
-
 # Make scripts executable
 RUN chmod +x /app/entrypoint.sh /app/wordpress-mcp-server.js
 

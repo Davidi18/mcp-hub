@@ -696,7 +696,14 @@ async function executeTool(name, args) {
           });
         }
         
-        return result;
+        return {
+          id: media.id,
+          url: media.source_url,
+          slug: media.slug,
+          guid: media.guid?.rendered,
+          title: media.title?.rendered,
+          alt_text: media.alt_text || "",
+        };
       }
   
       case 'wp_update_media': {

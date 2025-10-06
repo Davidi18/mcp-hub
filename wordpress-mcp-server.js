@@ -1,27 +1,53 @@
 #!/usr/bin/env node
-// WordPress MCP Server - Direct REST API Implementation
-// Simple, reliable, no external dependencies (except fetch)
+// WordPress MCP Server - Enhanced with 35 endpoints
+// Includes: Posts, Pages, Media (with update!), Comments, Users, Taxonomy, Site Info
+// Now with Multi-Client Support!
 
 import http from 'http';
 
 const PORT = parseInt(process.env.PORT || '8080');
-const WP_API_URL = process.env.WP_API_URL;
-const WP_API_USERNAME = process.env.WP_API_USERNAME;
-const WP_API_PASSWORD = process.env.WP_API_PASSWORD;
+
+// Multi-client configuration support
+function getClientConfig() {
+  const activeClient = process.env.ACTIVE_CLIENT || 'default';
+  
+  if (activeClient === 'default') {
+    return {
+      url: process.env.WP_API_URL,
+      username: process.env.WP_API_USERNAME,
+      password: process.env.WP_API_PASSWORD,
+      name: 'default'
+    };
+  }
+  
+  // Support for CLIENT1_NAME, CLIENT2_NAME, etc.
+  const clientPrefix = activeClient.toUpperCase().replace(/-/g, '_');
+  return {
+    url: process.env[`${clientPrefix}_WP_API_URL`],
+    username: process.env[`${clientPrefix}_WP_API_USERNAME`],
+    password: process.env[`${clientPrefix}_WP_API_PASSWORD`],
+    name: activeClient
+  };
+}
+
+const config = getClientConfig();
+const WP_API_URL = config.url;
+const WP_API_USERNAME = config.username;
+const WP_API_PASSWORD = config.password;
 
 if (!WP_API_URL || !WP_API_USERNAME || !WP_API_PASSWORD) {
-  console.error('Missing required environment variables: WP_API_URL, WP_API_USERNAME, WP_API_PASSWORD');
+  console.error('Missing required environment variables for client:', config.name);
+  console.error('Required: WP_API_URL, WP_API_USERNAME, WP_API_PASSWORD');
+  console.error('Or set ACTIVE_CLIENT and CLIENT[N]_* variables');
   process.exit(1);
 }
 
-// Ensure URL has proper format
-const baseURL = WP_API_URL.replace(/\/+$/, ''); // Remove trailing slashes
+const baseURL = WP_API_URL.replace(/\/+$/, '');
 const wpApiBase = baseURL.includes('/wp-json') ? baseURL : `${baseURL}/wp-json`;
-
-// Create auth header
 const authHeader = 'Basic ' + Buffer.from(`${WP_API_USERNAME}:${WP_API_PASSWORD}`).toString('base64');
 
-// WordPress API helper
+console.log(`🚀 Active Client: ${config.name}`);
+
 async function wpRequest(endpoint, options = {}) {
   const url = `${wpApiBase}${endpoint}`;
   const response = await fetch(url, {
@@ -48,9 +74,8 @@ async function wpRequest(endpoint, options = {}) {
   return data;
 }
 
-// MCP Tools definitions
 const tools = [
-  // Posts
+  // POSTS (5 endpoints)
   {
     name: 'wp_get_posts',
     description: 'Get WordPress posts with optional filters',
@@ -121,7 +146,7 @@ const tools = [
     }
   },
 
-  // Pages
+  // PAGES (5 endpoints)
   {
     name: 'wp_get_pages',
     description: 'Get WordPress pages',
@@ -187,7 +212,7 @@ const tools = [
     }
   },
 
-  // Media
+  // MEDIA (5 endpoints - NEW: update & delete!)
   {
     name: 'wp_get_media',
     description: 'Get WordPress media files',
@@ -225,8 +250,137 @@ const tools = [
       required: ['filename', 'base64_content']
     }
   },
+  {
+    name: 'wp_update_media',
+    description: 'Update media item metadata (title, alt text, caption, description)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Media ID', required: true },
+        title: { type: 'string', description: 'Media title' },
+        alt_text: { type: 'string', description: 'Alternative text for images' },
+        caption: { type: 'string', description: 'Media caption' },
+        description: { type: 'string', description: 'Media description' },
+        post: { type: 'number', description: 'Post ID to attach media to' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_delete_media',
+    description: 'Delete a media item',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Media ID', required: true },
+        force: { type: 'boolean', description: 'Bypass trash and force deletion', default: false }
+      },
+      required: ['id']
+    }
+  },
 
-  // Custom Post Types
+  // COMMENTS (5 endpoints - NEW!)
+  {
+    name: 'wp_get_comments',
+    description: 'Get WordPress comments',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        per_page: { type: 'number', description: 'Number of comments', default: 10 },
+        page: { type: 'number', description: 'Page number', default: 1 },
+        post: { type: 'number', description: 'Limit to specific post ID' },
+        status: { type: 'string', description: 'Comment status (approve, hold, spam)', default: 'approve' },
+        search: { type: 'string', description: 'Search term' }
+      }
+    }
+  },
+  {
+    name: 'wp_get_comment',
+    description: 'Get a specific comment by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Comment ID', required: true }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_create_comment',
+    description: 'Create a new comment on a post',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post: { type: 'number', description: 'Post ID', required: true },
+        content: { type: 'string', description: 'Comment content', required: true },
+        author_name: { type: 'string', description: 'Comment author name' },
+        author_email: { type: 'string', description: 'Comment author email' },
+        parent: { type: 'number', description: 'Parent comment ID for replies' }
+      },
+      required: ['post', 'content']
+    }
+  },
+  {
+    name: 'wp_update_comment',
+    description: 'Update an existing comment',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Comment ID', required: true },
+        content: { type: 'string', description: 'Comment content' },
+        status: { type: 'string', description: 'Comment status (approve, hold, spam, trash)' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_delete_comment',
+    description: 'Delete a comment',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Comment ID', required: true },
+        force: { type: 'boolean', description: 'Bypass trash and force deletion', default: false }
+      },
+      required: ['id']
+    }
+  },
+
+  // USERS (3 endpoints - NEW!)
+  {
+    name: 'wp_get_users',
+    description: 'Get WordPress users',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        per_page: { type: 'number', description: 'Number of users', default: 10 },
+        page: { type: 'number', description: 'Page number', default: 1 },
+        search: { type: 'string', description: 'Search term' },
+        roles: { type: 'string', description: 'Filter by role (admin, editor, author, etc)' }
+      }
+    }
+  },
+  {
+    name: 'wp_get_user',
+    description: 'Get a specific user by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'User ID', required: true }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_get_current_user',
+    description: 'Get information about the currently authenticated user',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+
+  // CUSTOM POST TYPES (3 endpoints)
   {
     name: 'wp_get_custom_posts',
     description: 'Get posts from a custom post type',
@@ -269,7 +423,7 @@ const tools = [
     }
   },
 
-  // Taxonomy
+  // TAXONOMY (6 endpoints - NEW: create, update, delete!)
   {
     name: 'wp_get_categories',
     description: 'Get WordPress categories',
@@ -289,13 +443,83 @@ const tools = [
         per_page: { type: 'number', description: 'Number of tags', default: 100 }
       }
     }
+  },
+  {
+    name: 'wp_create_category',
+    description: 'Create a new category',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Category name', required: true },
+        description: { type: 'string', description: 'Category description' },
+        parent: { type: 'number', description: 'Parent category ID' },
+        slug: { type: 'string', description: 'Category slug' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'wp_create_tag',
+    description: 'Create a new tag',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Tag name', required: true },
+        description: { type: 'string', description: 'Tag description' },
+        slug: { type: 'string', description: 'Tag slug' }
+      },
+      required: ['name']
+    }
+  },
+  {
+    name: 'wp_update_category',
+    description: 'Update an existing category',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Category ID', required: true },
+        name: { type: 'string', description: 'Category name' },
+        description: { type: 'string', description: 'Category description' },
+        parent: { type: 'number', description: 'Parent category ID' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'wp_delete_category',
+    description: 'Delete a category',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Category ID', required: true },
+        force: { type: 'boolean', description: 'Force deletion', default: false }
+      },
+      required: ['id']
+    }
+  },
+
+  // SITE INFO (2 endpoints - NEW!)
+  {
+    name: 'wp_get_site_info',
+    description: 'Get WordPress site information and settings',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'wp_get_post_types',
+    description: 'Get all available post types',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
   }
 ];
 
-// Tool execution
 async function executeTool(name, args) {
   switch (name) {
-    // Posts
+    // POSTS
     case 'wp_get_posts': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
@@ -359,7 +583,7 @@ async function executeTool(name, args) {
       return { deleted: true, id: args.id };
     }
 
-    // Pages
+    // PAGES
     case 'wp_get_pages': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
@@ -417,7 +641,7 @@ async function executeTool(name, args) {
       return { deleted: true, id: args.id };
     }
 
-    // Media
+    // MEDIA
     case 'wp_get_media': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
@@ -461,7 +685,6 @@ async function executeTool(name, args) {
         body: buffer
       });
       
-      // Update title and alt text if provided
       if (args.title || args.alt_text) {
         const updates = {};
         if (args.title) updates.title = args.title;
@@ -476,7 +699,151 @@ async function executeTool(name, args) {
       return { id: media.id, url: media.source_url };
     }
 
-    // Custom Post Types
+    case 'wp_update_media': {
+      const updates = {};
+      if (args.title) updates.title = args.title;
+      if (args.alt_text !== undefined) updates.alt_text = args.alt_text;
+      if (args.caption) updates.caption = args.caption;
+      if (args.description) updates.description = args.description;
+      if (args.post !== undefined) updates.post = args.post;
+
+      const media = await wpRequest(`/wp/v2/media/${args.id}`, {
+        method: 'POST',
+        body: JSON.stringify(updates)
+      });
+      return { 
+        id: media.id, 
+        url: media.source_url,
+        title: media.title.rendered,
+        alt_text: media.alt_text 
+      };
+    }
+
+    case 'wp_delete_media': {
+      await wpRequest(`/wp/v2/media/${args.id}?force=${args.force || false}`, {
+        method: 'DELETE'
+      });
+      return { deleted: true, id: args.id };
+    }
+
+    // COMMENTS
+    case 'wp_get_comments': {
+      const params = new URLSearchParams({
+        per_page: String(args.per_page || 10),
+        page: String(args.page || 1),
+        status: args.status || 'approve'
+      });
+      if (args.post) params.append('post', String(args.post));
+      if (args.search) params.append('search', args.search);
+      
+      const comments = await wpRequest(`/wp/v2/comments?${params}`);
+      return { 
+        comments: comments.map(c => ({ 
+          id: c.id, 
+          post: c.post,
+          author_name: c.author_name,
+          content: c.content.rendered,
+          date: c.date,
+          status: c.status
+        })) 
+      };
+    }
+
+    case 'wp_get_comment': {
+      const comment = await wpRequest(`/wp/v2/comments/${args.id}`);
+      return {
+        id: comment.id,
+        post: comment.post,
+        author_name: comment.author_name,
+        author_email: comment.author_email,
+        content: comment.content.rendered,
+        date: comment.date,
+        status: comment.status
+      };
+    }
+
+    case 'wp_create_comment': {
+      const commentData = {
+        post: args.post,
+        content: args.content
+      };
+      if (args.author_name) commentData.author_name = args.author_name;
+      if (args.author_email) commentData.author_email = args.author_email;
+      if (args.parent) commentData.parent = args.parent;
+
+      const comment = await wpRequest('/wp/v2/comments', {
+        method: 'POST',
+        body: JSON.stringify(commentData)
+      });
+      return { id: comment.id, status: comment.status };
+    }
+
+    case 'wp_update_comment': {
+      const updates = {};
+      if (args.content) updates.content = args.content;
+      if (args.status) updates.status = args.status;
+
+      const comment = await wpRequest(`/wp/v2/comments/${args.id}`, {
+        method: 'POST',
+        body: JSON.stringify(updates)
+      });
+      return { id: comment.id, status: comment.status };
+    }
+
+    case 'wp_delete_comment': {
+      await wpRequest(`/wp/v2/comments/${args.id}?force=${args.force || false}`, {
+        method: 'DELETE'
+      });
+      return { deleted: true, id: args.id };
+    }
+
+    // USERS
+    case 'wp_get_users': {
+      const params = new URLSearchParams({
+        per_page: String(args.per_page || 10),
+        page: String(args.page || 1)
+      });
+      if (args.search) params.append('search', args.search);
+      if (args.roles) params.append('roles', args.roles);
+      
+      const users = await wpRequest(`/wp/v2/users?${params}`);
+      return { 
+        users: users.map(u => ({ 
+          id: u.id, 
+          name: u.name,
+          username: u.slug,
+          email: u.email,
+          roles: u.roles,
+          link: u.link
+        })) 
+      };
+    }
+
+    case 'wp_get_user': {
+      const user = await wpRequest(`/wp/v2/users/${args.id}`);
+      return {
+        id: user.id,
+        name: user.name,
+        username: user.slug,
+        email: user.email,
+        roles: user.roles,
+        description: user.description,
+        link: user.link
+      };
+    }
+
+    case 'wp_get_current_user': {
+      const users = await wpRequest('/wp/v2/users/me');
+      return {
+        id: users.id,
+        name: users.name,
+        username: users.slug,
+        email: users.email,
+        roles: users.roles
+      };
+    }
+
+    // CUSTOM POST TYPES
     case 'wp_get_custom_posts': {
       const params = new URLSearchParams({
         per_page: String(args.per_page || 10),
@@ -514,7 +881,7 @@ async function executeTool(name, args) {
       return { id: post.id, link: post.link, status: post.status };
     }
 
-    // Taxonomy
+    // TAXONOMY
     case 'wp_get_categories': {
       const categories = await wpRequest(`/wp/v2/categories?per_page=${args.per_page || 100}`);
       return { categories: categories.map(c => ({ id: c.id, name: c.name, count: c.count })) };
@@ -523,6 +890,78 @@ async function executeTool(name, args) {
     case 'wp_get_tags': {
       const tags = await wpRequest(`/wp/v2/tags?per_page=${args.per_page || 100}`);
       return { tags: tags.map(t => ({ id: t.id, name: t.name, count: t.count })) };
+    }
+
+    case 'wp_create_category': {
+      const categoryData = { name: args.name };
+      if (args.description) categoryData.description = args.description;
+      if (args.parent) categoryData.parent = args.parent;
+      if (args.slug) categoryData.slug = args.slug;
+
+      const category = await wpRequest('/wp/v2/categories', {
+        method: 'POST',
+        body: JSON.stringify(categoryData)
+      });
+      return { id: category.id, name: category.name, slug: category.slug };
+    }
+
+    case 'wp_create_tag': {
+      const tagData = { name: args.name };
+      if (args.description) tagData.description = args.description;
+      if (args.slug) tagData.slug = args.slug;
+
+      const tag = await wpRequest('/wp/v2/tags', {
+        method: 'POST',
+        body: JSON.stringify(tagData)
+      });
+      return { id: tag.id, name: tag.name, slug: tag.slug };
+    }
+
+    case 'wp_update_category': {
+      const updates = {};
+      if (args.name) updates.name = args.name;
+      if (args.description !== undefined) updates.description = args.description;
+      if (args.parent !== undefined) updates.parent = args.parent;
+
+      const category = await wpRequest(`/wp/v2/categories/${args.id}`, {
+        method: 'POST',
+        body: JSON.stringify(updates)
+      });
+      return { id: category.id, name: category.name };
+    }
+
+    case 'wp_delete_category': {
+      await wpRequest(`/wp/v2/categories/${args.id}?force=${args.force || false}`, {
+        method: 'DELETE'
+      });
+      return { deleted: true, id: args.id };
+    }
+
+    // SITE INFO
+    case 'wp_get_site_info': {
+      const settings = await wpRequest('/wp/v2/settings');
+      return {
+        title: settings.title,
+        description: settings.description,
+        url: settings.url,
+        timezone: settings.timezone,
+        language: settings.language,
+        date_format: settings.date_format,
+        time_format: settings.time_format
+      };
+    }
+
+    case 'wp_get_post_types': {
+      const types = await wpRequest('/wp/v2/types');
+      return { 
+        post_types: Object.entries(types).map(([key, type]) => ({
+          slug: key,
+          name: type.name,
+          description: type.description,
+          hierarchical: type.hierarchical,
+          rest_base: type.rest_base
+        }))
+      };
     }
 
     default:
@@ -554,8 +993,8 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: {} },
           serverInfo: {
             name: 'WordPress MCP Server',
-            version: '1.1.0',
-            description: 'Direct WordPress REST API integration - Posts, Pages, Media, Custom Post Types'
+            version: '2.0.0',
+            description: '35 WordPress REST API endpoints - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
           }
         }
       }));
@@ -600,8 +1039,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`WordPress MCP Server listening on :${PORT}`);
+  console.log(`WordPress MCP Server v2.0.0 listening on :${PORT}`);
   console.log(`Connected to: ${wpApiBase}`);
+  console.log(`Available endpoints: ${tools.length}`);
 });
 
 process.on('SIGTERM', () => {

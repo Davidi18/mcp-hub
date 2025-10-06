@@ -1011,6 +1011,17 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'tools/call') {
       const { name, arguments: args } = params;
+
+      // 🛡️ Normalize ID fields before executing tool
+      if (args && typeof args === 'object') {
+        if (args.id && !args.ID) {
+          args.ID = String(args.id);
+        }
+        if (args.ID && typeof args.ID !== 'string') {
+          args.ID = String(args.ID);
+        }
+      }
+      
       const result = await executeTool(name, args || {});
       
       res.writeHead(200, { 'Content-Type': 'application/json' });

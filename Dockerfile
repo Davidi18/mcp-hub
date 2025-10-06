@@ -4,7 +4,7 @@ FROM node:22-alpine
 RUN apk add --no-cache bash gettext curl
 
 # 🪄 התקנת גרסה ספציפית ומתוקנת של MCP WordPress
-RUN npm install -g @automattic/mcp-wordpress-remote@2.1.1
+RUN npm install -g @automattic/mcp-wordpress-remote@2.0.4
 
 WORKDIR /app
 

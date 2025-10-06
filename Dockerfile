@@ -11,4 +11,4 @@ COPY . .
 EXPOSE 9090
 ENV NODE_ENV=production
 
-CMD ["node", "aggregator-direct.js"]
+CMD ["node", "aggregator.js"]

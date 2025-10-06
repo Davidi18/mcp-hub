@@ -102,7 +102,8 @@ function authOk(req, url) {
 
 async function rpc(client, body) {
   const startTime = Date.now();
-  const url = `http://127.0.0.1:9090/mcp`;
+  const token = process.env.AUTH_TOKEN || process.env.PROXY_TOKEN || '';
+  const url = `http://127.0.0.1:${client.port}/mcp${token ? `?token=${token}` : ''}`;
   
   try {
     const res = await fetch(url, {

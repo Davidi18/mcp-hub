@@ -707,7 +707,7 @@ async function executeTool(name, args) {
       if (args.description) updates.description = args.description;
       if (args.post !== undefined) updates.post = args.post;
     
-      const media = await wpRequest(`/wp/v2/media/${args.id}`, {
+      const media = await wpRequest(`wp/v2/media/${args.id}`, {        
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'

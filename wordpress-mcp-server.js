@@ -1011,17 +1011,22 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'tools/call') {
       const { name, arguments: args } = params;
-
-      // 🛡️ Normalize ID fields before executing tool
-      if (args && typeof args === 'object') {
-        if (args.id && !args.ID) {
-          args.ID = String(args.id);
-        }
-        if (args.ID && typeof args.ID !== 'string') {
-          args.ID = String(args.ID);
-        }
+    
+      // 🧩 Flatten nested arguments (אם n8n שלח args.arguments)
+      if (args && args.arguments && typeof args.arguments === 'object') {
+        Object.assign(args, args.arguments);
+        delete args.arguments;
       }
-      
+    
+      // 🛡️ Normalize ID fields (תמיד מחרוזת, ותמיד יש גם ID וגם id)
+      if (args && typeof args === 'object') {
+        if (args.id && !args.ID) args.ID = String(args.id);
+        if (args.ID && typeof args.ID !== 'string') args.ID = String(args.ID);
+      }
+    
+      // Debug log
+      console.log('🪵 TOOL CALL:', name, JSON.stringify(args, null, 2));
+    
       const result = await executeTool(name, args || {});
       
       res.writeHead(200, { 'Content-Type': 'application/json' });

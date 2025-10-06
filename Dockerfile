@@ -3,8 +3,7 @@ FROM node:22-alpine
 RUN apk add --no-cache bash gettext curl git
 
 # 🪄 התקנת MCP WordPress ישירות מגיטהאב (כולל כל התיקונים האחרונים)
-RUN npm install -g "git+https://github.com/Automattic/mcp-wordpress-remote.git#main"
-
+RUN npm install -g "git+https://github.com/Automattic/mcp-wordpress-remote.git#trunk"
 WORKDIR /app
 
 COPY package.json /app/package.json

@@ -700,15 +700,26 @@ async function executeTool(name, args) {
     }
 
     case 'wp_update_media': {
+      // בונים גוף עדכון רק משדות אמיתיים
       const updates = {};
-      if (args.title) updates.title = args.title;
-      if (args.alt_text !== undefined) updates.alt_text = args.alt_text;
-      if (args.caption) updates.caption = args.caption;
-      if (args.description) updates.description = args.description;
-      if (args.post !== undefined) updates.post = args.post;
+      if (typeof args.title === 'string' && args.title.trim() !== '') updates.title = args.title;
+      if (typeof args.alt_text === 'string' && args.alt_text.trim() !== '') updates.alt_text = args.alt_text;
+      if (typeof args.caption === 'string' && args.caption.trim() !== '') updates.caption = args.caption;
+      if (typeof args.description === 'string' && args.description.trim() !== '') updates.description = args.description;
+      if (typeof args.post === 'number') updates.post = args.post;
     
+      // קונטקסט עריכה עוזר למארחים מסוימים
+      updates.context = 'edit';
+    
+      // הגנה מפני בקשה ריקה
+      const keys = Object.keys(updates).filter(k => k !== 'context');
+      if (keys.length === 0) {
+        throw new Error('No fields to update. Provide at least one of: title, alt_text, caption, description, post');
+      }
+    
+      // קריאה זהה ללוגיקה שעבדה לך ב־curl
       const media = await wpRequest(`/wp/v2/media/${args.id}`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json; charset=UTF-8',
           'Authorization': authHeader
@@ -716,11 +727,11 @@ async function executeTool(name, args) {
         body: JSON.stringify(updates)
       });
     
-      return { 
-        id: media.id, 
+      return {
+        id: media.id,
         url: media.source_url,
-        title: media.title?.rendered || media.title,
-        alt_text: media.alt_text 
+        title: media.title?.rendered || media.title || '',
+        alt_text: media.alt_text || ''
       };
     }
 

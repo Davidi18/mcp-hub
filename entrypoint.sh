@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -e
 
 echo "🚀 Starting MCP Hub (WordPress)..."
 echo ""
@@ -12,10 +12,10 @@ CLIENT_COUNT=0
 
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   # Use eval to get variable values (sh-compatible)
-  eval wp_url=\$WP${i}_URL
-  eval wp_user=\$WP${i}_USER
-  eval wp_pass=\$WP${i}_APP_PASS
-  eval client_name=\$CLIENT${i}_NAME
+  eval wp_url=\${WP${i}_URL:-}
+  eval wp_user=\${WP${i}_USER:-}
+  eval wp_pass=\${WP${i}_APP_PASS:-}
+  eval client_name=\${CLIENT${i}_NAME:-}
   
   # Set default client name if not provided
   [ -z "$client_name" ] && client_name="client${i}"

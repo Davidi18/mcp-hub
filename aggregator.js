@@ -3,6 +3,7 @@
 
 import http from 'http';
 import { URL } from 'url';
+import FormData from 'form-data';
 import RateLimiter from './rate-limiter.js';
 import CacheManager from './cache-manager.js';
 import AnalyticsLogger from './analytics-logger.js';
@@ -19,18 +20,20 @@ logger.log('INFO', 'MCP Hub (Direct WordPress REST) starting...', {
   port: PORT,
   authEnabled: !!AUTH_TOKEN
 });
+if (!AUTH_TOKEN) logger.log('WARN', '⚠️ Running without AUTH_TOKEN protection');
 
 // בונה מיפוי לקוחות מתוך משתני סביבה
 function buildClientMapping() {
   const clients = {};
-  for (let i = 1; i <= 15; i++) {
+  for (let i = 1; i <= 20; i++) {
     const wpUrl = process.env[`WP${i}_URL`];
     const wpUser = process.env[`WP${i}_USER`];
     const wpPass = process.env[`WP${i}_APP_PASS`];
     const name = process.env[`CLIENT${i}_NAME`] || `client${i}`;
 
     if (wpUrl && wpUser && wpPass) {
-      const id = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      // שומר על אותיות קטנות בלבד, מאפשר נקודות
+      const id = name.toLowerCase().replace(/[^a-z0-9.]/g, '-') || `client${i}`;
       clients[id] = { id, name, wpUrl, wpUser, wpPass };
       logger.log('INFO', `Registered client: ${name}`, { wpUrl });
     }
@@ -39,15 +42,30 @@ function buildClientMapping() {
 }
 const clients = buildClientMapping();
 
-// בודק אימות
+// אימות טוקן
 function authOk(req, url) {
   if (!AUTH_TOKEN) return true;
-  const hdr = req.headers['authorization'];
+  const hdr = (req.headers['authorization'] || '').trim();
   const queryToken = url?.searchParams?.get('token');
   return hdr === AUTH_TOKEN || hdr === `Bearer ${AUTH_TOKEN}` || queryToken === AUTH_TOKEN;
 }
 
-// מוצא Client ID
+// השוואת לקוחות חכמה (תומכת גם בנקודות וגם במקפים)
+function findClientById(rawId) {
+  if (!rawId) return null;
+  const normalized = rawId.toLowerCase().trim();
+  const variants = [
+    normalized,
+    normalized.replace(/\./g, '-'),
+    normalized.replace(/-/g, '.')
+  ];
+  return Object.values(clients).find(c =>
+    variants.includes(c.id) ||
+    variants.includes(c.name.toLowerCase())
+  );
+}
+
+// קבלת Client ID מתוך query או header
 function getClientId(req, url) {
   const fromHeader = req.headers['x-client-id'] || req.headers['x-client'];
   if (fromHeader) return fromHeader.toLowerCase().trim();
@@ -56,81 +74,97 @@ function getClientId(req, url) {
   return null;
 }
 
-// ⚙️ מיפוי פעולות ל־REST endpoints
+// מיפוי פעולות ל־REST endpoints
 const endpointMap = {
-  // יצירת פוסט חדש
   wp_create_post: { method: 'POST', path: '/wp-json/wp/v2/posts' },
-
-  // עדכון פוסט קיים
-  wp_update_post: {
-    method: 'POST',
-    path: (args) => `/wp-json/wp/v2/posts/${args.id}`
-  },
-
-  // קבלת רשימת פוסטים
+  wp_update_post: { method: 'POST', path: (args) => `/wp-json/wp/v2/posts/${args.id}?_method=PUT` },
   wp_get_posts: { method: 'GET', path: '/wp-json/wp/v2/posts' },
-
-  // מחיקת פוסט
-  wp_delete_post: {
-    method: 'DELETE',
-    path: (args) => `/wp-json/wp/v2/posts/${args.id}?force=true`
-  },
-
-  // העלאת מדיה
+  wp_delete_post: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/posts/${args.id}?force=true` },
   wp_upload_media: { method: 'POST', path: '/wp-json/wp/v2/media' },
-
-  // עדכון מטא של מדיה
-  wp_update_media: {
-    method: 'POST',
-    path: (args) => `/wp-json/wp/v2/media/${args.id}`
-  },
-
-  // קבלת מדיה
+  wp_update_media: { method: 'POST', path: (args) => `/wp-json/wp/v2/media/${args.id}?_method=PUT` },
   wp_get_media: { method: 'GET', path: '/wp-json/wp/v2/media' },
-
-  // יצירת קטגוריה
   wp_create_category: { method: 'POST', path: '/wp-json/wp/v2/categories' },
-
-  // קבלת קטגוריות
   wp_get_categories: { method: 'GET', path: '/wp-json/wp/v2/categories' },
-
-  // יצירת עמוד
   wp_create_page: { method: 'POST', path: '/wp-json/wp/v2/pages' },
-
-  // עדכון עמוד
-  wp_update_page: {
-    method: 'POST',
-    path: (args) => `/wp-json/wp/v2/pages/${args.id}`
-  },
-
-  // קבלת עמודים
+  wp_update_page: { method: 'POST', path: (args) => `/wp-json/wp/v2/pages/${args.id}?_method=PUT` },
   wp_get_pages: { method: 'GET', path: '/wp-json/wp/v2/pages' }
 };
 
-// ✅ כאן החלק הקריטי — מחליף את rpc הקודם
+// פונקציית קריאה ל־WordPress
 async function rpc(client, body) {
   const startTime = Date.now();
   const toolName = body?.params?.name;
   const args = body?.params?.arguments || {};
   const endpoint = endpointMap[toolName];
 
-  if (!endpoint) {
-    throw new Error(`Unknown tool: ${toolName}`);
-  }
+  if (!toolName) throw new Error('Missing params.name in request body');
+  if (!endpoint) throw new Error(`Unknown tool: ${toolName}`);
 
   const path = typeof endpoint.path === 'function' ? endpoint.path(args) : endpoint.path;
   const url = `${client.wpUrl.replace(/\/$/, '')}${path}`;
   const auth = Buffer.from(`${client.wpUser}:${client.wpPass}`).toString('base64');
 
-  const res = await fetch(url, {
-    method: endpoint.method,
-    headers: {
-      'Authorization': `Basic ${auth}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    body: endpoint.method !== 'GET' ? JSON.stringify(args) : undefined
-  });
+  let res;
+
+  try {
+    // 🧩 טיפול מיוחד להעלאת מדיה
+    if (toolName === 'wp_upload_media') {
+      const filename = args.filename || 'upload.jpg';
+      const mime = args.mime || 'image/jpeg';
+      const headers = {
+        'Authorization': `Basic ${auth}`,
+        'User-Agent': 'MCP-Hub/DirectREST'
+      };
+
+      // אפשרות א: נשלח base64_content → נשלח כ־Buffer
+      if (args.base64_content) {
+        const fileBuffer = Buffer.from(args.base64_content, 'base64');
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Content-Type': mime
+          },
+          body: fileBuffer
+        });
+      }
+
+      // אפשרות ב: נשלח form_data/binary → נשלח כ־multipart/form-data
+      else if (args.binary || args.form_data) {
+        const form = new FormData();
+        const content = args.binary || args.form_data;
+        form.append('file', content, { filename, contentType: mime });
+        if (args.title) form.append('title', args.title);
+        if (args.alt_text) form.append('alt_text', args.alt_text);
+
+        res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: form
+        });
+      } else {
+        throw new Error('Missing file data: provide base64_content or binary/form_data');
+      }
+    }
+
+    // ✅ יתר הקריאות הרגילות
+    else {
+      res = await fetch(url, {
+        method: endpoint.method,
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'User-Agent': 'MCP-Hub/DirectREST',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: endpoint.method !== 'GET' ? JSON.stringify(args) : undefined
+      });
+    }
+  } catch (netErr) {
+    logger.log('ERROR', 'Network failure', { url, client: client.name, msg: netErr.message });
+    throw new Error(`Network error while contacting ${client.name}: ${netErr.message}`);
+  }
 
   const text = await res.text();
   if (!res.ok) {
@@ -182,18 +216,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   const clientId = getClientId(req, url);
-  const client = clients[clientId];
+  const client = findClientById(clientId);
 
   if (!client) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'unknown_client', available: Object.keys(clients) }));
+    return res.end(JSON.stringify({
+      error: 'unknown_client',
+      received: clientId,
+      available: Object.keys(clients)
+    }));
   }
 
   let body;
   try {
     const chunks = [];
     for await (const c of req) chunks.push(c);
-    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const raw = Buffer.concat(chunks);
+    const text = raw.toString('utf8');
+    body = JSON.parse(text);
   } catch {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ error: 'invalid_json' }));
@@ -204,6 +244,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(out, null, 2));
   } catch (err) {
+    console.error(err);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: err.message }));
   }

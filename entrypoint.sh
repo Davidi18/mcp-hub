@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 echo "🚀 Starting MCP Hub (WordPress)..."
 echo ""
@@ -10,22 +10,25 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 CLIENT_COUNT=0
 
-for i in {1..15}; do
-  wp_url_var="WP${i}_URL"
-  wp_user_var="WP${i}_USER"
-  wp_pass_var="WP${i}_APP_PASS"
-  client_name_var="CLIENT${i}_NAME"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  # Use eval to get variable values (sh-compatible)
+  eval wp_url=\$WP${i}_URL
+  eval wp_user=\$WP${i}_USER
+  eval wp_pass=\$WP${i}_APP_PASS
+  eval client_name=\$CLIENT${i}_NAME
   
-  if [ -n "${!wp_url_var:-}" ] && [ -n "${!wp_user_var:-}" ] && [ -n "${!wp_pass_var:-}" ]; then
+  # Set default client name if not provided
+  [ -z "$client_name" ] && client_name="client${i}"
+  
+  if [ -n "$wp_url" ] && [ -n "$wp_user" ] && [ -n "$wp_pass" ]; then
     CLIENT_COUNT=$((CLIENT_COUNT + 1))
-    client_name="${!client_name_var:-client${i}}"
     
     # Normalize company name for endpoint
     normalized_name=$(echo "$client_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
     
     echo "  ✅ Client ${i}: ${client_name}"
-    echo "     ├─ WordPress: ${!wp_url_var}"
-    echo "     ├─ User: ${!wp_user_var}"
+    echo "     ├─ WordPress: ${wp_url}"
+    echo "     ├─ User: ${wp_user}"
     echo "     └─ ID: ${normalized_name}"
     
     # Start WordPress MCP for this client on port 9100+i
@@ -33,9 +36,9 @@ for i in {1..15}; do
     echo "     🔧 Starting WordPress MCP on port ${port}..."
     
     # Run our custom WordPress MCP server (direct REST API)
-    WP_API_URL="${!wp_url_var}" \
-    WP_API_USERNAME="${!wp_user_var}" \
-    WP_API_PASSWORD="${!wp_pass_var}" \
+    WP_API_URL="$wp_url" \
+    WP_API_USERNAME="$wp_user" \
+    WP_API_PASSWORD="$wp_pass" \
     PORT=$port \
     node /app/wordpress-mcp-server.js 2>&1 | sed "s/^/     [WP-${client_name}] /" &
     
@@ -43,7 +46,7 @@ for i in {1..15}; do
     echo ""
     
     # Small delay to prevent race conditions
-    sleep 0.5
+    sleep 1
   fi
 done
 

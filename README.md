@@ -8,6 +8,7 @@
 - ✨ **HTTP REST API** - `GET /api/find` endpoint for direct queries
 - ✨ **Unified Search** - Automatically searches both posts AND pages in one call
 - ✨ **Multi-Client Support** - Query different WordPress sites using client parameter
+- 🤖 **Auto-Detection** - Automatically detects client from URL domain (no manual client parameter needed!)
 - ✨ **API Key Authentication** - Secure your endpoint with shared API key
 - ✨ **Flexible Search** - Find content by slug, full URL, or text search
 
@@ -239,9 +240,15 @@ You can search using one of these parameters:
   "content": "<p>Welcome to our site...</p>",
   "url": "https://yoursite.com/about-us",
   "date": "2024-01-15T10:30:00",
-  "status": "publish"
+  "status": "publish",
+  "_meta": {
+    "client": "client1",
+    "autoDetected": true
+  }
 }
 ```
+
+**Note:** `_meta.autoDetected` will be `true` if the client was detected from the URL domain, or `false` if manually specified via `&client=` parameter.
 
 #### Not Found Response
 ```json
@@ -269,10 +276,14 @@ curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?slug=privacy-policy"
 ```
 
-#### Example 2: Find content by full URL
+#### Example 2: Find content by full URL (with auto-detection!)
 ```bash
+# The system automatically detects the client from the domain
 curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?url=https://mysite.com/blog/my-post"
+
+# No need to specify &client=... - it's detected automatically!
+# If mysite.com matches CLIENT1_WP_API_URL, it will use client1 credentials
 ```
 
 #### Example 3: Search across posts and pages
@@ -287,12 +298,62 @@ curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?slug=about&client=client2"
 ```
 
-### How It Works
+### 🤖 Automatic Client Detection
 
-1. **Searches Posts First** - Checks all published posts for matching slug
-2. **Then Searches Pages** - If not found in posts, checks pages
-3. **Returns First Match** - Returns immediately when content is found
-4. **Type Indicator** - Response includes `"type": "post"` or `"type": "page"`
+**The killer feature:** When you provide a full URL, the system automatically detects which WordPress site to query!
+
+#### How Auto-Detection Works:
+
+1. You send a request with a full URL: `?url=https://site1.com/about`
+2. System extracts the domain: `site1.com`
+3. Compares domain against all configured clients:
+   - `WP_API_URL` (default)
+   - `CLIENT1_WP_API_URL`
+   - `CLIENT2_WP_API_URL`
+   - etc.
+4. Finds a match and uses those credentials automatically!
+
+#### Example Configuration:
+
+```bash
+# .env file
+WP_API_URL=https://mainsite.com
+CLIENT1_WP_API_URL=https://blog.example.com
+CLIENT2_WP_API_URL=https://shop.example.com
+```
+
+Now you can query any site without specifying the client:
+
+```bash
+# Automatically uses default credentials
+GET /api/find?url=https://mainsite.com/privacy
+
+# Automatically uses CLIENT1 credentials
+GET /api/find?url=https://blog.example.com/my-post
+
+# Automatically uses CLIENT2 credentials
+GET /api/find?url=https://shop.example.com/product-page
+```
+
+**No `&client=` parameter needed!** ✨
+
+#### Manual Override
+
+You can still manually specify a client if needed:
+
+```bash
+# Force specific client (ignores auto-detection)
+GET /api/find?url=https://anywhere.com/page&client=client3
+```
+
+### How Search Works
+
+1. **Auto-Detects Client** (if URL provided and no manual client)
+2. **Searches Posts First** - Checks all published posts for matching slug
+3. **Then Searches Pages** - If not found in posts, checks pages
+4. **Returns First Match** - Returns immediately when content is found
+5. **Type Indicator** - Response includes `"type": "post"` or `"type": "page"`
+6. **Meta Information** - Response includes `_meta.autoDetected: true/false`
 
 ### Security
 
@@ -362,9 +423,11 @@ npm start
 #### Added
 - 🌐 **HTTP GET API** - New `/api/find` endpoint for direct HTTP queries
 - 🔍 **Unified Search** - Automatically searches both posts and pages
+- 🤖 **Automatic Client Detection** - System auto-detects which WordPress site to query from URL domain
 - 🔐 **API Key Authentication** - Secure HTTP endpoint with shared API key
 - 🏢 **Multi-Client HTTP Support** - Query different WordPress sites via `client` parameter
 - 📖 **Flexible Search Options** - Find by slug, URL, or text search
+- 📊 **Response Metadata** - Includes `_meta` object with client info and auto-detection status
 - 📚 **Comprehensive Documentation** - Full HTTP API usage examples
 
 #### Improved
@@ -372,6 +435,7 @@ npm start
 - Enhanced `.env.example` with API key configuration
 - Better multi-client configuration documentation
 - Improved startup logging with emoji indicators
+- Smart fallback: manual `client` parameter overrides auto-detection
 
 ### v2.0.0
 

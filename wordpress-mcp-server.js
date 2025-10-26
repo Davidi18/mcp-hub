@@ -6,10 +6,11 @@
 import http from 'http';
 
 const PORT = parseInt(process.env.PORT || '8080');
+const API_KEY = process.env.API_KEY; // Shared API key for all clients
 
 // Multi-client configuration support
-function getClientConfig() {
-  const activeClient = process.env.ACTIVE_CLIENT || 'default';
+function getClientConfig(clientId = null) {
+  const activeClient = clientId || process.env.ACTIVE_CLIENT || 'default';
   
   if (activeClient === 'default') {
     return {
@@ -517,6 +518,106 @@ const tools = [
   }
 ];
 
+// Unified search function for posts and pages
+async function findContent(searchParams, clientConfig) {
+  const { slug, url, search } = searchParams;
+
+  // Build WordPress API base URL for this client
+  const baseURL = clientConfig.url.replace(/\/+$/, '');
+  const wpApiBase = baseURL.includes('/wp-json') ? baseURL : `${baseURL}/wp-json`;
+  const authHeader = 'Basic ' + Buffer.from(`${clientConfig.username}:${clientConfig.password}`).toString('base64');
+
+  async function wpRequestForClient(endpoint, options = {}) {
+    const fullUrl = `${wpApiBase}${endpoint}`;
+    const response = await fetch(fullUrl, {
+      ...options,
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        ...options.headers
+      }
+    });
+
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (e) {
+      throw new Error(`Invalid JSON from WordPress: ${text.substring(0, 100)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`WordPress API error (${response.status}): ${JSON.stringify(data)}`);
+    }
+
+    return data;
+  }
+
+  // Search in posts first
+  let params = new URLSearchParams({ per_page: '1' });
+
+  if (slug) {
+    params.append('slug', slug);
+  } else if (url) {
+    // Extract slug from URL
+    const urlParts = url.split('/').filter(p => p);
+    const possibleSlug = urlParts[urlParts.length - 1];
+    params.append('slug', possibleSlug);
+  } else if (search) {
+    params.append('search', search);
+  }
+
+  // Try posts
+  try {
+    const posts = await wpRequestForClient(`/wp/v2/posts?${params}`);
+    if (posts && posts.length > 0) {
+      const post = posts[0];
+      return {
+        found: true,
+        type: 'post',
+        id: post.id,
+        title: post.title.rendered,
+        slug: post.slug,
+        content: post.content.rendered,
+        excerpt: post.excerpt.rendered,
+        url: post.link,
+        date: post.date,
+        status: post.status
+      };
+    }
+  } catch (error) {
+    console.error('Error searching posts:', error.message);
+  }
+
+  // Try pages
+  try {
+    const pages = await wpRequestForClient(`/wp/v2/pages?${params}`);
+    if (pages && pages.length > 0) {
+      const page = pages[0];
+      return {
+        found: true,
+        type: 'page',
+        id: page.id,
+        title: page.title.rendered,
+        slug: page.slug,
+        content: page.content.rendered,
+        url: page.link,
+        date: page.date,
+        status: page.status
+      };
+    }
+  } catch (error) {
+    console.error('Error searching pages:', error.message);
+  }
+
+  // Not found
+  return {
+    found: false,
+    message: 'Content not found in posts or pages',
+    searchParams
+  };
+}
+
 async function executeTool(name, args) {
   switch (name) {
     // POSTS
@@ -988,9 +1089,58 @@ async function executeTool(name, args) {
 
 // HTTP Server
 const server = http.createServer(async (req, res) => {
+  // Handle GET /api/find endpoint
+  if (req.method === 'GET' && req.url.startsWith('/api/find')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+
+      const { slug, url, search, client } = params;
+
+      if (!slug && !url && !search) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Missing search parameter. Provide one of: slug, url, or search'
+        }));
+      }
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Perform the search
+      const result = await findContent({ slug, url, search }, clientConfig);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(result, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
+  // Handle POST /mcp endpoint (existing MCP protocol)
   if (req.method !== 'POST' || req.url !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp' }));
+    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp or GET /api/find' }));
   }
 
   try {
@@ -1010,8 +1160,8 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: {} },
           serverInfo: {
             name: 'WordPress MCP Server',
-            version: '2.0.0',
-            description: '35 WordPress REST API endpoints - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
+            version: '2.1.0',
+            description: '35 WordPress REST API endpoints + HTTP GET API - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
           }
         }
       }));
@@ -1072,9 +1222,12 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`WordPress MCP Server v2.0.0 listening on :${PORT}`);
-  console.log(`Connected to: ${wpApiBase}`);
-  console.log(`Available endpoints: ${tools.length}`);
+  console.log(`🚀 WordPress MCP Server v2.1.0 listening on :${PORT}`);
+  console.log(`📡 MCP Protocol: POST /mcp`);
+  console.log(`🔍 HTTP API: GET /api/find?slug=...&client=...`);
+  console.log(`🔐 API Key: ${API_KEY ? 'Enabled ✅' : 'Disabled ⚠️'}`);
+  console.log(`🌐 Default site: ${wpApiBase}`);
+  console.log(`🛠️  Available MCP tools: ${tools.length}`);
 });
 
 process.on('SIGTERM', () => {

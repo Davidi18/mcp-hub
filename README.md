@@ -1,7 +1,17 @@
-# WordPress MCP Server v2.0 - Enhanced Edition
+# WordPress MCP Server v2.1 - Enhanced Edition with HTTP API
 
-## 🎉 What's New in v2.0
+## 🎉 What's New in v2.1
 
+**NEW: HTTP GET API** - Direct HTTP access to find posts and pages by slug or URL!
+
+### v2.1 Features:
+- ✨ **HTTP REST API** - `GET /api/find` endpoint for direct queries
+- ✨ **Unified Search** - Automatically searches both posts AND pages in one call
+- ✨ **Multi-Client Support** - Query different WordPress sites using client parameter
+- ✨ **API Key Authentication** - Secure your endpoint with shared API key
+- ✨ **Flexible Search** - Find content by slug, full URL, or text search
+
+### v2.0 Features:
 **35 Total Endpoints** (up from 18) - **94% increase in functionality!**
 
 ### New Features Added:
@@ -182,6 +192,128 @@
 
 ---
 
+## 🌐 HTTP API Usage (New in v2.1!)
+
+### Quick Start
+
+The new HTTP API allows you to find WordPress posts and pages using simple GET requests.
+
+#### Basic Request
+```bash
+GET /api/find?slug=about-us
+```
+
+#### With API Key (Recommended)
+```bash
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/find?slug=about-us"
+```
+
+#### Multi-Client Request
+```bash
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/find?slug=contact&client=client1"
+```
+
+### Search Parameters
+
+You can search using one of these parameters:
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `slug` | Find by WordPress slug | `?slug=about-us` |
+| `url` | Find by full URL (slug extracted) | `?url=https://site.com/about-us` |
+| `search` | Text search in title/content | `?search=contact` |
+| `client` | Specify which WordPress site | `&client=client1` |
+
+### Response Format
+
+#### Success Response (Found)
+```json
+{
+  "found": true,
+  "type": "page",
+  "id": 42,
+  "title": "About Us",
+  "slug": "about-us",
+  "content": "<p>Welcome to our site...</p>",
+  "url": "https://yoursite.com/about-us",
+  "date": "2024-01-15T10:30:00",
+  "status": "publish"
+}
+```
+
+#### Not Found Response
+```json
+{
+  "found": false,
+  "message": "Content not found in posts or pages",
+  "searchParams": {
+    "slug": "non-existent-page"
+  }
+}
+```
+
+#### Error Response (Missing API Key)
+```json
+{
+  "error": "Unauthorized: Invalid API Key"
+}
+```
+
+### Real-World Examples
+
+#### Example 1: Find a page by slug
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?slug=privacy-policy"
+```
+
+#### Example 2: Find content by full URL
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?url=https://mysite.com/blog/my-post"
+```
+
+#### Example 3: Search across posts and pages
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?search=contact%20us"
+```
+
+#### Example 4: Query specific client
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?slug=about&client=client2"
+```
+
+### How It Works
+
+1. **Searches Posts First** - Checks all published posts for matching slug
+2. **Then Searches Pages** - If not found in posts, checks pages
+3. **Returns First Match** - Returns immediately when content is found
+4. **Type Indicator** - Response includes `"type": "post"` or `"type": "page"`
+
+### Security
+
+The HTTP API uses a shared API key for authentication:
+
+1. Set `API_KEY` in your `.env` file
+2. Send the key in request headers as `X-API-Key` or `Authorization: Bearer <key>`
+3. Without API key: requests will be rejected with 401 Unauthorized
+
+```bash
+# Generate a secure API key
+openssl rand -hex 32
+```
+
+Add to `.env`:
+```bash
+API_KEY=your-generated-key-here
+```
+
+---
+
 ## 🔧 Installation
 
 No changes to installation process - same as before:
@@ -223,9 +355,27 @@ npm start
 
 ---
 
-## 📝 Changelog v2.0.0
+## 📝 Changelog
 
-### Added
+### v2.1.0 (Latest)
+
+#### Added
+- 🌐 **HTTP GET API** - New `/api/find` endpoint for direct HTTP queries
+- 🔍 **Unified Search** - Automatically searches both posts and pages
+- 🔐 **API Key Authentication** - Secure HTTP endpoint with shared API key
+- 🏢 **Multi-Client HTTP Support** - Query different WordPress sites via `client` parameter
+- 📖 **Flexible Search Options** - Find by slug, URL, or text search
+- 📚 **Comprehensive Documentation** - Full HTTP API usage examples
+
+#### Improved
+- Updated server version to 2.1.0
+- Enhanced `.env.example` with API key configuration
+- Better multi-client configuration documentation
+- Improved startup logging with emoji indicators
+
+### v2.0.0
+
+#### Added
 - Media update and delete endpoints
 - Complete comments CRUD system
 - User management endpoints
@@ -234,7 +384,7 @@ npm start
 - Enhanced error handling
 - Better response formatting
 
-### Improved
+#### Improved
 - Updated server version to 2.0.0
 - Enhanced tool descriptions
 - More detailed input schemas

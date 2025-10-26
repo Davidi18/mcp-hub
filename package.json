@@ -1,9 +1,24 @@
 {
   "type": "module",
-  "name": "mcp-hub",
-  "version": "3.0.0",
-  "description": "MCP Hub - Unified WordPress & DataForSEO with Rate Limiting, Caching & Analytics",
+  "name": "wordpress-mcp-server",
+  "version": "2.1.0",
+  "description": "WordPress MCP Server - 35 REST API endpoints + HTTP GET API for posts/pages search",
+  "main": "wordpress-mcp-server.js",
+  "scripts": {
+    "start": "node wordpress-mcp-server.js"
+  },
+  "keywords": [
+    "wordpress",
+    "mcp",
+    "rest-api",
+    "http-api",
+    "cms",
+    "content-management"
+  ],
   "dependencies": {
     "form-data": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

@@ -557,10 +557,18 @@ const tools = [
     }
   },
 
-  // SITE INFO (2 endpoints - NEW!)
+  // SITE INFO (4 endpoints - NEW!)
   {
     name: 'wp_get_site_info',
-    description: 'Get WordPress site information and settings',
+    description: 'Get WordPress site information and settings including special page IDs',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'wp_get_special_pages',
+    description: 'Get special WordPress page IDs (homepage, blog page, privacy policy, etc.) with full page details',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -1123,8 +1131,94 @@ async function executeTool(name, args) {
         timezone: settings.timezone,
         language: settings.language,
         date_format: settings.date_format,
-        time_format: settings.time_format
+        time_format: settings.time_format,
+        // Special page settings
+        show_on_front: settings.show_on_front, // 'posts' or 'page'
+        page_on_front: settings.page_on_front || 0, // Homepage page ID (0 if show_on_front is 'posts')
+        page_for_posts: settings.page_for_posts || 0, // Blog listing page ID
+        posts_per_page: settings.posts_per_page || 10,
+        default_category: settings.default_category || 1,
+        default_post_format: settings.default_post_format || '0'
       };
+    }
+
+    case 'wp_get_special_pages': {
+      const settings = await wpRequest('/wp/v2/settings');
+      const specialPages = {};
+
+      // Get homepage details if set to a static page
+      if (settings.show_on_front === 'page' && settings.page_on_front) {
+        try {
+          const homepage = await wpRequest(`/wp/v2/pages/${settings.page_on_front}`);
+          specialPages.homepage = {
+            id: homepage.id,
+            title: homepage.title.rendered,
+            slug: homepage.slug,
+            url: homepage.link,
+            status: homepage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.homepage = {
+            id: settings.page_on_front,
+            error: 'Page not found or not accessible'
+          };
+        }
+      } else {
+        specialPages.homepage = {
+          type: 'posts',
+          description: 'Homepage shows latest posts'
+        };
+      }
+
+      // Get blog listing page details if set
+      if (settings.page_for_posts) {
+        try {
+          const blogPage = await wpRequest(`/wp/v2/pages/${settings.page_for_posts}`);
+          specialPages.blog_page = {
+            id: blogPage.id,
+            title: blogPage.title.rendered,
+            slug: blogPage.slug,
+            url: blogPage.link,
+            status: blogPage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.blog_page = {
+            id: settings.page_for_posts,
+            error: 'Page not found or not accessible'
+          };
+        }
+      }
+
+      // Get privacy policy page if set
+      if (settings.wp_page_for_privacy_policy) {
+        try {
+          const privacyPage = await wpRequest(`/wp/v2/pages/${settings.wp_page_for_privacy_policy}`);
+          specialPages.privacy_policy = {
+            id: privacyPage.id,
+            title: privacyPage.title.rendered,
+            slug: privacyPage.slug,
+            url: privacyPage.link,
+            status: privacyPage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.privacy_policy = {
+            id: settings.wp_page_for_privacy_policy,
+            error: 'Page not found or not accessible'
+          };
+        }
+      }
+
+      // Add reading settings context
+      specialPages._settings = {
+        show_on_front: settings.show_on_front,
+        posts_per_page: settings.posts_per_page,
+        default_category: settings.default_category
+      };
+
+      return specialPages;
     }
 
     case 'wp_get_post_types': {

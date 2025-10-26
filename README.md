@@ -1,8 +1,15 @@
-# WordPress MCP Server v2.1 - Enhanced Edition with HTTP API
+# WordPress MCP Server v2.2 - Enhanced Edition with HTTP API + Special Pages
 
-## 🎉 What's New in v2.1
+## 🎉 What's New in v2.2
 
-**NEW: HTTP GET API** - Direct HTTP access to find posts and pages by slug or URL!
+**NEW: Special Pages Retrieval** - Get homepage, blog page, and privacy policy page IDs with full details!
+
+### v2.2 Features:
+- ✨ **Special Pages API** - `wp_get_special_pages` endpoint for homepage, blog, and privacy policy pages
+- ✨ **Enhanced Site Info** - `wp_get_site_info` now includes special page IDs and reading settings
+- 🏠 **Homepage Detection** - Automatically detects static homepage or posts listing
+- 📝 **Blog Page ID** - Get the blog listing page when using static homepage
+- 🔒 **Privacy Policy Page** - Direct access to privacy policy page details
 
 ### v2.1 Features:
 - ✨ **HTTP REST API** - `GET /api/find` endpoint for direct queries
@@ -13,7 +20,7 @@
 - ✨ **Flexible Search** - Find content by slug, full URL, or text search
 
 ### v2.0 Features:
-**35 Total Endpoints** (up from 18) - **94% increase in functionality!**
+**36 Total Endpoints** (up from 18) - **100% increase in functionality!**
 
 ### New Features Added:
 
@@ -98,8 +105,9 @@
 - **`wp_update_category`** ← NEW!
 - **`wp_delete_category`** ← NEW!
 
-### Site Info (2 endpoints) ✨ ALL NEW!
-- **`wp_get_site_info`** - Site settings
+### Site Info (3 endpoints) ✨ ALL NEW!
+- **`wp_get_site_info`** - Site settings including special page IDs
+- **`wp_get_special_pages`** - Get homepage, blog page, privacy policy page IDs
 - **`wp_get_post_types`** - Available post types
 
 ---
@@ -172,7 +180,23 @@
   "tool": "wp_get_site_info",
   "args": {}
 }
-// Returns: title, description, url, timezone, language, etc.
+// Returns: title, description, url, timezone, language,
+// show_on_front, page_on_front, page_for_posts, etc.
+```
+
+### Get Special Pages (Homepage, Blog, Privacy Policy)
+```javascript
+{
+  "tool": "wp_get_special_pages",
+  "args": {}
+}
+// Returns full details of special pages:
+// {
+//   "homepage": { id: 5, title: "Home", slug: "home", url: "...", status: "publish", type: "page" },
+//   "blog_page": { id: 8, title: "Blog", slug: "blog", url: "...", status: "publish", type: "page" },
+//   "privacy_policy": { id: 3, title: "Privacy Policy", slug: "privacy-policy", url: "...", status: "publish", type: "page" },
+//   "_settings": { show_on_front: "page", posts_per_page: 10, default_category: 1 }
+// }
 ```
 
 ---
@@ -188,8 +212,8 @@
 | Users | 0 endpoints | 3 endpoints | 75% ✨ |
 | Taxonomy | 2 endpoints | 6 endpoints | 100% ✨ |
 | Custom Posts | 3 endpoints | 3 endpoints | 100% ✅ |
-| Site Info | 0 endpoints | 2 endpoints | NEW ✨ |
-| **TOTAL** | **18 endpoints** | **35 endpoints** | **94% more!** |
+| Site Info | 0 endpoints | 3 endpoints | NEW ✨ |
+| **TOTAL** | **18 endpoints** | **36 endpoints** | **100% more!** |
 
 ---
 
@@ -418,7 +442,22 @@ npm start
 
 ## 📝 Changelog
 
-### v2.1.0 (Latest)
+### v2.2.0 (Latest)
+
+#### Added
+- 🏠 **Special Pages Retrieval** - New `wp_get_special_pages` endpoint
+- 📄 **Homepage ID Detection** - Automatically get homepage page ID (static or posts)
+- 📝 **Blog Page ID Detection** - Get blog listing page ID when using static homepage
+- 🔒 **Privacy Policy Page** - Retrieve privacy policy page details
+- 📊 **Enhanced Site Info** - `wp_get_site_info` now includes `show_on_front`, `page_on_front`, `page_for_posts`, `posts_per_page`, and more
+
+#### Improved
+- More comprehensive site configuration data
+- Better handling of special WordPress pages
+- Detailed page information with title, slug, URL, and status
+- Total endpoints increased to 36 (100% increase from v1.0!)
+
+### v2.1.0
 
 #### Added
 - 🌐 **HTTP GET API** - New `/api/find` endpoint for direct HTTP queries

@@ -11,7 +11,7 @@ const API_KEY = process.env.API_KEY; // Shared API key for all clients
 // Multi-client configuration support
 function getClientConfig(clientId = null) {
   const activeClient = clientId || process.env.ACTIVE_CLIENT || 'default';
-  
+
   if (activeClient === 'default') {
     return {
       url: process.env.WP_API_URL,
@@ -20,7 +20,7 @@ function getClientConfig(clientId = null) {
       name: 'default'
     };
   }
-  
+
   // Support for CLIENT1_NAME, CLIENT2_NAME, etc.
   const clientPrefix = activeClient.toUpperCase().replace(/-/g, '_');
   return {
@@ -29,6 +29,64 @@ function getClientConfig(clientId = null) {
     password: process.env[`${clientPrefix}_WP_API_PASSWORD`],
     name: activeClient
   };
+}
+
+// Extract domain from URL
+function extractDomain(url) {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Get all available client configurations
+function getAllClientConfigs() {
+  const configs = [];
+
+  // Add default config
+  if (process.env.WP_API_URL) {
+    configs.push({
+      id: 'default',
+      domain: extractDomain(process.env.WP_API_URL),
+      config: getClientConfig('default')
+    });
+  }
+
+  // Check for CLIENT1 through CLIENT20 (reasonable limit)
+  for (let i = 1; i <= 20; i++) {
+    const clientId = `client${i}`;
+    const prefix = `CLIENT${i}`;
+    const url = process.env[`${prefix}_WP_API_URL`];
+
+    if (url) {
+      configs.push({
+        id: clientId,
+        domain: extractDomain(url),
+        config: getClientConfig(clientId)
+      });
+    }
+  }
+
+  return configs;
+}
+
+// Detect client by domain from URL
+function detectClientByDomain(urlString) {
+  const domain = extractDomain(urlString);
+  if (!domain) return null;
+
+  const allConfigs = getAllClientConfigs();
+
+  // Find matching client by domain
+  for (const { id, domain: clientDomain } of allConfigs) {
+    if (clientDomain && clientDomain === domain) {
+      return id;
+    }
+  }
+
+  return null;
 }
 
 const config = getClientConfig();
@@ -1112,8 +1170,17 @@ const server = http.createServer(async (req, res) => {
         }));
       }
 
+      // Auto-detect client by domain if URL is provided and no client specified
+      let detectedClient = client;
+      if (!detectedClient && url) {
+        detectedClient = detectClientByDomain(url);
+        if (detectedClient) {
+          console.log(`🔍 Auto-detected client from URL domain: ${detectedClient}`);
+        }
+      }
+
       // Get client configuration
-      const clientConfig = getClientConfig(client);
+      const clientConfig = getClientConfig(detectedClient);
 
       if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -1125,8 +1192,17 @@ const server = http.createServer(async (req, res) => {
       // Perform the search
       const result = await findContent({ slug, url, search }, clientConfig);
 
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: detectedClient || 'default',
+          autoDetected: !client && !!detectedClient
+        }
+      };
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify(result, null, 2));
+      return res.end(JSON.stringify(responseData, null, 2));
 
     } catch (error) {
       res.writeHead(500, { 'Content-Type': 'application/json' });

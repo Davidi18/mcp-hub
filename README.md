@@ -226,7 +226,7 @@ The HTTP API provides 4 powerful endpoints:
 | Endpoint | Description | Parameters | Recommended |
 |----------|-------------|------------|-------------|
 | `GET /api/site-data` | **Get everything in one call** - site info + special pages | `client` (optional) | ⭐ **YES** |
-| `GET /api/find` | Find posts/pages by slug, URL, or text search | `slug`, `url`, `search`, `client` | |
+| `GET /api/find` | **Universal search** - Find ANY content by ID, slug, URL, or text | `id`, `slug`, `url`, `search`, `client` | ⭐ **YES** |
 | `GET /api/special-pages` | Get special pages only (homepage, blog, privacy) | `client` (optional) | |
 | `GET /api/site-info` | Get site settings only | `client` (optional) | |
 
@@ -274,18 +274,25 @@ curl -H "X-API-Key: your-secret-key" \
 
 ### Search Parameters
 
-You can search using one of these parameters:
+You can search using **any** of these parameters - the API will find your content regardless of type:
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `slug` | Find by WordPress slug | `?slug=about-us` |
-| `url` | Find by full URL (slug extracted) | `?url=https://site.com/about-us` |
-| `search` | Text search in title/content | `?search=contact` |
-| `client` | Specify which WordPress site | `&client=client1` |
+| Parameter | Description | Example | Finds |
+|-----------|-------------|---------|-------|
+| `id` | Find by WordPress ID (direct lookup) | `?id=42` | Posts, Pages |
+| `slug` | Find by WordPress slug | `?slug=about-us` | Posts, Pages, Special Pages |
+| `url` | Find by full URL (slug extracted) | `?url=https://site.com/about-us` | Posts, Pages, Special Pages |
+| `search` | Text search in title/content | `?search=contact` | Posts, Pages |
+| `client` | Specify which WordPress site | `&client=client1` | Multi-site selection |
+
+**Special Pages Detection:**
+The API automatically detects special WordPress pages:
+- Homepage (by slug match or keywords: `home`, `homepage`)
+- Blog page (by slug match or keyword: `blog`)
+- Privacy policy (by slug match or keywords: `privacy`, `privacy-policy`)
 
 ### Response Format
 
-#### Success Response (Found)
+#### Success Response (Found - Regular Content)
 ```json
 {
   "found": true,
@@ -303,6 +310,32 @@ You can search using one of these parameters:
   }
 }
 ```
+
+#### Success Response (Found - Special Page)
+```json
+{
+  "found": true,
+  "type": "page",
+  "specialType": "homepage",
+  "id": 5,
+  "title": "Home",
+  "slug": "home",
+  "content": "<p>Welcome to our homepage...</p>",
+  "url": "https://yoursite.com/",
+  "date": "2024-01-15T10:30:00",
+  "status": "publish",
+  "isSpecialPage": true,
+  "_meta": {
+    "client": "default",
+    "autoDetected": false
+  }
+}
+```
+
+**Special page types:**
+- `"homepage"` - Static homepage
+- `"blog_page"` - Blog listing page
+- `"privacy_policy"` - Privacy policy page
 
 **Note:** `_meta.autoDetected` will be `true` if the client was detected from the URL domain, or `false` if manually specified via `&client=` parameter.
 
@@ -326,13 +359,42 @@ You can search using one of these parameters:
 
 ### Real-World Examples
 
-#### Example 1: Find a page by slug
+#### Example 1: Find by ID (fastest - direct lookup)
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?id=42"
+# Returns: Post or Page with ID 42 with full details
+```
+
+#### Example 2: Find homepage (special page detection)
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?slug=home"
+# Returns: Homepage with specialType: "homepage", isSpecialPage: true
+```
+
+#### Example 3: Find blog page
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?slug=blog"
+# Returns: Blog page with specialType: "blog_page", isSpecialPage: true
+```
+
+#### Example 4: Find privacy policy
 ```bash
 curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?slug=privacy-policy"
+# Returns: Privacy policy page with specialType: "privacy_policy", isSpecialPage: true
 ```
 
-#### Example 2: Find content by full URL (with auto-detection!)
+#### Example 5: Find any page by slug
+```bash
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/find?slug=about-us"
+# Returns: Regular page or post matching the slug
+```
+
+#### Example 6: Find content by full URL (with auto-detection!)
 ```bash
 # The system automatically detects the client from the domain
 curl -H "X-API-Key: abc123" \
@@ -342,13 +404,14 @@ curl -H "X-API-Key: abc123" \
 # If mysite.com matches CLIENT1_WP_API_URL, it will use client1 credentials
 ```
 
-#### Example 3: Search across posts and pages
+#### Example 7: Text search across all content
 ```bash
 curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?search=contact%20us"
+# Returns: First match in posts or pages containing "contact us"
 ```
 
-#### Example 4: Query specific client
+#### Example 8: Query specific client
 ```bash
 curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?slug=about&client=client2"
@@ -686,6 +749,13 @@ npm start
   - Get site info + special pages in **one optimized call**
   - Parallel fetching for maximum performance
   - Includes timestamp for cache management
+- 🔍 **Universal Search** - Enhanced `/api/find` endpoint
+  - Search by **ID** (direct lookup - fastest)
+  - Search by **slug** (finds posts, pages, special pages)
+  - Search by **URL** (auto-detects client from domain)
+  - Search by **text** (full-text search)
+  - **Automatic special page detection** - homepage, blog, privacy policy
+  - Returns `isSpecialPage` and `specialType` for special pages
 - 🌐 **HTTP API for Special Pages** - New `GET /api/special-pages` endpoint
 - 🌐 **HTTP API for Site Info** - New `GET /api/site-info` endpoint
 - 🏠 **Special Pages Retrieval** - New `wp_get_special_pages` MCP tool
@@ -696,9 +766,10 @@ npm start
 
 #### Improved
 - HTTP API expanded from 1 endpoint to **4 endpoints**
+- Universal search finds **any content type** - posts, pages, special pages
 - Reduced API calls: Get everything in one request with `/api/site-data`
 - More comprehensive site configuration data via HTTP
-- Better handling of special WordPress pages
+- Better handling of special WordPress pages with automatic detection
 - Detailed page information with title, slug, URL, and status
 - Multi-client support for all HTTP endpoints
 - Total MCP tools increased to 36 (100% increase from v1.0!)

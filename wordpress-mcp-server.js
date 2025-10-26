@@ -584,9 +584,9 @@ const tools = [
   }
 ];
 
-// Unified search function for posts and pages
+// Universal search function - finds ANY content type in WordPress
 async function findContent(searchParams, clientConfig) {
-  const { slug, url, search } = searchParams;
+  const { slug, url, search, id } = searchParams;
 
   // Build WordPress API base URL for this client
   const baseURL = clientConfig.url.replace(/\/+$/, '');
@@ -619,16 +619,138 @@ async function findContent(searchParams, clientConfig) {
     return data;
   }
 
-  // Search in posts first
+  // If searching by ID, try direct lookup
+  if (id) {
+    // Try posts by ID
+    try {
+      const post = await wpRequestForClient(`/wp/v2/posts/${id}`);
+      if (post) {
+        return {
+          found: true,
+          type: 'post',
+          id: post.id,
+          title: post.title.rendered,
+          slug: post.slug,
+          content: post.content.rendered,
+          excerpt: post.excerpt?.rendered,
+          url: post.link,
+          date: post.date,
+          status: post.status
+        };
+      }
+    } catch (error) {
+      // Not a post, try pages
+    }
+
+    // Try pages by ID
+    try {
+      const page = await wpRequestForClient(`/wp/v2/pages/${id}`);
+      if (page) {
+        return {
+          found: true,
+          type: 'page',
+          id: page.id,
+          title: page.title.rendered,
+          slug: page.slug,
+          content: page.content.rendered,
+          url: page.link,
+          date: page.date,
+          status: page.status
+        };
+      }
+    } catch (error) {
+      // Not found by ID
+    }
+  }
+
+  // Extract search term
+  let searchSlug = slug;
+  if (url) {
+    const urlParts = url.split('/').filter(p => p);
+    searchSlug = urlParts[urlParts.length - 1];
+  }
+
+  // STEP 1: Check if it's a special page (homepage, blog, privacy policy)
+  if (searchSlug && !search) {
+    try {
+      const settings = await wpRequestForClient('/wp/v2/settings');
+      const specialPages = {};
+
+      // Check homepage
+      if (settings.show_on_front === 'page' && settings.page_on_front) {
+        try {
+          const homepage = await wpRequestForClient(`/wp/v2/pages/${settings.page_on_front}`);
+          if (homepage && (homepage.slug === searchSlug || searchSlug === 'home' || searchSlug === 'homepage')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'homepage',
+              id: homepage.id,
+              title: homepage.title.rendered,
+              slug: homepage.slug,
+              content: homepage.content.rendered,
+              url: homepage.link,
+              date: homepage.date,
+              status: homepage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+
+      // Check blog page
+      if (settings.page_for_posts) {
+        try {
+          const blogPage = await wpRequestForClient(`/wp/v2/pages/${settings.page_for_posts}`);
+          if (blogPage && (blogPage.slug === searchSlug || searchSlug === 'blog')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'blog_page',
+              id: blogPage.id,
+              title: blogPage.title.rendered,
+              slug: blogPage.slug,
+              content: blogPage.content.rendered,
+              url: blogPage.link,
+              date: blogPage.date,
+              status: blogPage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+
+      // Check privacy policy page
+      if (settings.wp_page_for_privacy_policy) {
+        try {
+          const privacyPage = await wpRequestForClient(`/wp/v2/pages/${settings.wp_page_for_privacy_policy}`);
+          if (privacyPage && (privacyPage.slug === searchSlug || searchSlug === 'privacy' || searchSlug === 'privacy-policy')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'privacy_policy',
+              id: privacyPage.id,
+              title: privacyPage.title.rendered,
+              slug: privacyPage.slug,
+              content: privacyPage.content.rendered,
+              url: privacyPage.link,
+              date: privacyPage.date,
+              status: privacyPage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+    } catch (error) {
+      console.error('Error checking special pages:', error.message);
+    }
+  }
+
+  // STEP 2: Search in standard posts and pages
   let params = new URLSearchParams({ per_page: '1' });
 
-  if (slug) {
-    params.append('slug', slug);
-  } else if (url) {
-    // Extract slug from URL
-    const urlParts = url.split('/').filter(p => p);
-    const possibleSlug = urlParts[urlParts.length - 1];
-    params.append('slug', possibleSlug);
+  if (searchSlug) {
+    params.append('slug', searchSlug);
   } else if (search) {
     params.append('search', search);
   }
@@ -645,7 +767,7 @@ async function findContent(searchParams, clientConfig) {
         title: post.title.rendered,
         slug: post.slug,
         content: post.content.rendered,
-        excerpt: post.excerpt.rendered,
+        excerpt: post.excerpt?.rendered,
         url: post.link,
         date: post.date,
         status: post.status
@@ -679,8 +801,8 @@ async function findContent(searchParams, clientConfig) {
   // Not found
   return {
     found: false,
-    message: 'Content not found in posts or pages',
-    searchParams
+    message: 'Content not found in posts, pages, or special pages',
+    searchParams: { slug: searchSlug, search, id }
   };
 }
 
@@ -1255,12 +1377,12 @@ const server = http.createServer(async (req, res) => {
       const urlObj = new URL(req.url, `http://${req.headers.host}`);
       const params = Object.fromEntries(urlObj.searchParams);
 
-      const { slug, url, search, client } = params;
+      const { slug, url, search, id, client } = params;
 
-      if (!slug && !url && !search) {
+      if (!slug && !url && !search && !id) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          error: 'Missing search parameter. Provide one of: slug, url, or search'
+          error: 'Missing search parameter. Provide one of: id, slug, url, or search'
         }));
       }
 
@@ -1283,8 +1405,8 @@ const server = http.createServer(async (req, res) => {
         }));
       }
 
-      // Perform the search
-      const result = await findContent({ slug, url, search }, clientConfig);
+      // Perform the universal search
+      const result = await findContent({ id, slug, url, search }, clientConfig);
 
       // Add client info to response
       const responseData = {

@@ -1307,10 +1307,108 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Handle GET /api/special-pages endpoint
+  if (req.method === 'GET' && req.url.startsWith('/api/special-pages')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call wp_get_special_pages
+      const result = await executeTool('wp_get_special_pages', {});
+
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/special-pages'
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
+  // Handle GET /api/site-info endpoint
+  if (req.method === 'GET' && req.url.startsWith('/api/site-info')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call wp_get_site_info
+      const result = await executeTool('wp_get_site_info', {});
+
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/site-info'
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
   // Handle POST /mcp endpoint (existing MCP protocol)
   if (req.method !== 'POST' || req.url !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp or GET /api/find' }));
+    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp, GET /api/find, GET /api/special-pages, or GET /api/site-info' }));
   }
 
   try {
@@ -1330,8 +1428,8 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: {} },
           serverInfo: {
             name: 'WordPress MCP Server',
-            version: '2.1.0',
-            description: '35 WordPress REST API endpoints + HTTP GET API - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
+            version: '2.2.0',
+            description: '36 WordPress REST API endpoints + HTTP API with Special Pages - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
           }
         }
       }));

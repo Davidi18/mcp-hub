@@ -217,27 +217,46 @@
 
 ---
 
-## 🌐 HTTP API Usage (New in v2.1!)
+## 🌐 HTTP API Usage (Enhanced in v2.2!)
+
+### Available Endpoints
+
+The HTTP API provides 3 powerful endpoints:
+
+| Endpoint | Description | Parameters |
+|----------|-------------|------------|
+| `GET /api/find` | Find posts/pages by slug, URL, or text search | `slug`, `url`, `search`, `client` |
+| `GET /api/special-pages` | Get special pages (homepage, blog, privacy) | `client` (optional) |
+| `GET /api/site-info` | Get site settings and configuration | `client` (optional) |
 
 ### Quick Start
 
-The new HTTP API allows you to find WordPress posts and pages using simple GET requests.
-
-#### Basic Request
+#### 1. Find Posts/Pages
 ```bash
-GET /api/find?slug=about-us
-```
-
-#### With API Key (Recommended)
-```bash
+# Basic search by slug
 curl -H "X-API-Key: your-secret-key" \
      "http://localhost:8080/api/find?slug=about-us"
 ```
 
-#### Multi-Client Request
+#### 2. Get Special Pages
 ```bash
+# Get homepage, blog page, and privacy policy page IDs
 curl -H "X-API-Key: your-secret-key" \
-     "http://localhost:8080/api/find?slug=contact&client=client1"
+     "http://localhost:8080/api/special-pages"
+```
+
+#### 3. Get Site Information
+```bash
+# Get site settings including special page IDs
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/site-info"
+```
+
+#### Multi-Client Requests
+```bash
+# Query specific WordPress site
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/special-pages?client=client1"
 ```
 
 ### Search Parameters
@@ -320,6 +339,129 @@ curl -H "X-API-Key: abc123" \
 ```bash
 curl -H "X-API-Key: abc123" \
      "http://localhost:8080/api/find?slug=about&client=client2"
+```
+
+---
+
+### 🆕 New Endpoints (v2.2)
+
+#### GET /api/special-pages
+
+Get all special WordPress pages with full details in one request.
+
+**Request:**
+```bash
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/special-pages"
+```
+
+**Response:**
+```json
+{
+  "homepage": {
+    "id": 5,
+    "title": "Home",
+    "slug": "home",
+    "url": "https://yoursite.com/",
+    "status": "publish",
+    "type": "page"
+  },
+  "blog_page": {
+    "id": 8,
+    "title": "Blog",
+    "slug": "blog",
+    "url": "https://yoursite.com/blog",
+    "status": "publish",
+    "type": "page"
+  },
+  "privacy_policy": {
+    "id": 3,
+    "title": "Privacy Policy",
+    "slug": "privacy-policy",
+    "url": "https://yoursite.com/privacy-policy",
+    "status": "publish",
+    "type": "page"
+  },
+  "_settings": {
+    "show_on_front": "page",
+    "posts_per_page": 10,
+    "default_category": 1
+  },
+  "_meta": {
+    "client": "default",
+    "endpoint": "/api/special-pages"
+  }
+}
+```
+
+**Use Cases:**
+- Get homepage ID for navigation menus
+- Find blog page for archive links
+- Access privacy policy page for footer links
+- Build dynamic site maps
+
+---
+
+#### GET /api/site-info
+
+Get comprehensive site settings and configuration.
+
+**Request:**
+```bash
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/site-info"
+```
+
+**Response:**
+```json
+{
+  "title": "My WordPress Site",
+  "description": "Just another WordPress site",
+  "url": "https://yoursite.com",
+  "timezone": "America/New_York",
+  "language": "en-US",
+  "date_format": "F j, Y",
+  "time_format": "g:i a",
+  "show_on_front": "page",
+  "page_on_front": 5,
+  "page_for_posts": 8,
+  "posts_per_page": 10,
+  "default_category": 1,
+  "default_post_format": "0",
+  "_meta": {
+    "client": "default",
+    "endpoint": "/api/site-info"
+  }
+}
+```
+
+**Key Fields:**
+- `show_on_front`: `"page"` (static homepage) or `"posts"` (blog listing)
+- `page_on_front`: Homepage page ID (0 if `show_on_front` is `"posts"`)
+- `page_for_posts`: Blog listing page ID
+- `posts_per_page`: Number of posts per page
+- `default_category`: Default category ID for new posts
+
+**Use Cases:**
+- Detect homepage type (static vs. blog)
+- Get pagination settings
+- Build site configuration dashboards
+- Sync site settings across platforms
+
+---
+
+#### Multi-Client Support
+
+All HTTP endpoints support the `?client=` parameter:
+
+```bash
+# Get special pages from client1
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/special-pages?client=client1"
+
+# Get site info from client2
+curl -H "X-API-Key: abc123" \
+     "http://localhost:8080/api/site-info?client=client2"
 ```
 
 ### 🤖 Automatic Client Detection
@@ -445,17 +587,21 @@ npm start
 ### v2.2.0 (Latest)
 
 #### Added
-- 🏠 **Special Pages Retrieval** - New `wp_get_special_pages` endpoint
+- 🌐 **HTTP API for Special Pages** - New `GET /api/special-pages` endpoint
+- 🌐 **HTTP API for Site Info** - New `GET /api/site-info` endpoint
+- 🏠 **Special Pages Retrieval** - New `wp_get_special_pages` MCP tool
 - 📄 **Homepage ID Detection** - Automatically get homepage page ID (static or posts)
 - 📝 **Blog Page ID Detection** - Get blog listing page ID when using static homepage
 - 🔒 **Privacy Policy Page** - Retrieve privacy policy page details
 - 📊 **Enhanced Site Info** - `wp_get_site_info` now includes `show_on_front`, `page_on_front`, `page_for_posts`, `posts_per_page`, and more
 
 #### Improved
-- More comprehensive site configuration data
+- HTTP API expanded from 1 endpoint to 3 endpoints
+- More comprehensive site configuration data via HTTP
 - Better handling of special WordPress pages
 - Detailed page information with title, slug, URL, and status
-- Total endpoints increased to 36 (100% increase from v1.0!)
+- Multi-client support for all HTTP endpoints
+- Total MCP tools increased to 36 (100% increase from v1.0!)
 
 ### v2.1.0
 

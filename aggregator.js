@@ -42,6 +42,123 @@ function buildClientMapping() {
 }
 const clients = buildClientMapping();
 
+// Extract domain from URL
+function extractDomain(urlString) {
+  try {
+    const urlObj = new URL(urlString);
+    return urlObj.hostname;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Auto-detect client by domain from URL
+function detectClientByDomain(urlString) {
+  const domain = extractDomain(urlString);
+  if (!domain) return null;
+
+  // Find matching client by domain
+  for (const client of Object.values(clients)) {
+    const clientDomain = extractDomain(client.wpUrl);
+    if (clientDomain && clientDomain === domain) {
+      return client.id;
+    }
+  }
+
+  return null;
+}
+
+// Unified search function for posts and pages
+async function findContent(searchParams, client) {
+  const { slug, url, search } = searchParams;
+  const baseUrl = client.wpUrl.replace(/\/$/, '');
+  const auth = Buffer.from(`${client.wpUser}:${client.wpPass}`).toString('base64');
+
+  // Build query parameters
+  let params = new URLSearchParams({ per_page: '1' });
+
+  if (slug) {
+    params.append('slug', slug);
+  } else if (url) {
+    // Extract slug from URL
+    const urlParts = url.split('/').filter(p => p);
+    const possibleSlug = urlParts[urlParts.length - 1];
+    params.append('slug', possibleSlug);
+  } else if (search) {
+    params.append('search', search);
+  }
+
+  // Try posts first
+  try {
+    const postsUrl = `${baseUrl}/wp-json/wp/v2/posts?${params}`;
+    const postsRes = await fetch(postsUrl, {
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'User-Agent': 'MCP-Hub/DirectREST'
+      }
+    });
+
+    if (postsRes.ok) {
+      const posts = await postsRes.json();
+      if (posts && posts.length > 0) {
+        const post = posts[0];
+        return {
+          found: true,
+          type: 'post',
+          id: post.id,
+          title: post.title.rendered,
+          slug: post.slug,
+          content: post.content.rendered,
+          excerpt: post.excerpt.rendered,
+          url: post.link,
+          date: post.date,
+          status: post.status
+        };
+      }
+    }
+  } catch (error) {
+    logger.log('WARN', 'Error searching posts', { error: error.message });
+  }
+
+  // Try pages
+  try {
+    const pagesUrl = `${baseUrl}/wp-json/wp/v2/pages?${params}`;
+    const pagesRes = await fetch(pagesUrl, {
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'User-Agent': 'MCP-Hub/DirectREST'
+      }
+    });
+
+    if (pagesRes.ok) {
+      const pages = await pagesRes.json();
+      if (pages && pages.length > 0) {
+        const page = pages[0];
+        return {
+          found: true,
+          type: 'page',
+          id: page.id,
+          title: page.title.rendered,
+          slug: page.slug,
+          content: page.content.rendered,
+          url: page.link,
+          date: page.date,
+          status: page.status
+        };
+      }
+    }
+  } catch (error) {
+    logger.log('WARN', 'Error searching pages', { error: error.message });
+  }
+
+  // Not found
+  return {
+    found: false,
+    message: 'Content not found in posts or pages',
+    searchParams
+  };
+}
+
 // אימות טוקן
 function authOk(req, url) {
   if (!AUTH_TOKEN) return true;
@@ -205,9 +322,76 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ clients }, null, 2));
   }
 
+  // Handle GET /api/find endpoint
+  if (req.method === 'GET' && pathname === '/api/find') {
+    try {
+      // Check authentication
+      if (!authOk(req, url)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'unauthorized', hint: 'Add ?token=... or X-API-Key header' }));
+      }
+
+      const slug = url.searchParams.get('slug');
+      const urlParam = url.searchParams.get('url');
+      const search = url.searchParams.get('search');
+      const clientParam = url.searchParams.get('client');
+
+      if (!slug && !urlParam && !search) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Missing search parameter. Provide one of: slug, url, or search'
+        }));
+      }
+
+      // Auto-detect client by domain if URL is provided and no client specified
+      let detectedClientId = clientParam;
+      if (!detectedClientId && urlParam) {
+        detectedClientId = detectClientByDomain(urlParam);
+        if (detectedClientId) {
+          logger.log('INFO', `Auto-detected client from URL domain: ${detectedClientId}`);
+        }
+      }
+
+      // Get client configuration
+      const client = findClientById(detectedClientId);
+
+      if (!client) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: 'Client not found',
+          received: detectedClientId,
+          available: Object.keys(clients)
+        }));
+      }
+
+      // Perform the search
+      const result = await findContent({ slug, url: urlParam, search }, client);
+
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: client.id,
+          clientName: client.name,
+          autoDetected: !clientParam && !!detectedClientId
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      logger.log('ERROR', '/api/find error', { error: error.message });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message
+      }));
+    }
+  }
+
   if (pathname !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'not_found', message: 'Use POST /mcp?client=NAME' }));
+    return res.end(JSON.stringify({ error: 'not_found', message: 'Use POST /mcp?client=NAME or GET /api/find' }));
   }
 
   if (!authOk(req, url)) {

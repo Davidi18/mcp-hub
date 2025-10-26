@@ -1307,6 +1307,60 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Handle GET /api/site-data endpoint (UNIFIED - Recommended!)
+  if (req.method === 'GET' && req.url.startsWith('/api/site-data')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call both endpoints in parallel for maximum efficiency
+      const [siteInfo, specialPages] = await Promise.all([
+        executeTool('wp_get_site_info', {}),
+        executeTool('wp_get_special_pages', {})
+      ]);
+
+      // Unified response with all site data
+      const responseData = {
+        site: siteInfo,
+        pages: specialPages,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/site-data',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
   // Handle GET /api/special-pages endpoint
   if (req.method === 'GET' && req.url.startsWith('/api/special-pages')) {
     try {
@@ -1408,7 +1462,7 @@ const server = http.createServer(async (req, res) => {
   // Handle POST /mcp endpoint (existing MCP protocol)
   if (req.method !== 'POST' || req.url !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp, GET /api/find, GET /api/special-pages, or GET /api/site-info' }));
+    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp, GET /api/find, GET /api/site-data (recommended), GET /api/special-pages, or GET /api/site-info' }));
   }
 
   try {

@@ -221,15 +221,28 @@
 
 ### Available Endpoints
 
-The HTTP API provides 3 powerful endpoints:
+The HTTP API provides 4 powerful endpoints:
 
-| Endpoint | Description | Parameters |
-|----------|-------------|------------|
-| `GET /api/find` | Find posts/pages by slug, URL, or text search | `slug`, `url`, `search`, `client` |
-| `GET /api/special-pages` | Get special pages (homepage, blog, privacy) | `client` (optional) |
-| `GET /api/site-info` | Get site settings and configuration | `client` (optional) |
+| Endpoint | Description | Parameters | Recommended |
+|----------|-------------|------------|-------------|
+| `GET /api/site-data` | **Get everything in one call** - site info + special pages | `client` (optional) | ⭐ **YES** |
+| `GET /api/find` | Find posts/pages by slug, URL, or text search | `slug`, `url`, `search`, `client` | |
+| `GET /api/special-pages` | Get special pages only (homepage, blog, privacy) | `client` (optional) | |
+| `GET /api/site-info` | Get site settings only | `client` (optional) | |
 
 ### Quick Start
+
+#### ⭐ Recommended: Get Everything in One Call
+```bash
+# Get site info + special pages in a single request
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/site-data"
+```
+
+**Response includes:**
+- Complete site settings (title, url, timezone, reading settings, etc.)
+- All special pages (homepage, blog page, privacy policy)
+- Returned in one optimized call
 
 #### 1. Find Posts/Pages
 ```bash
@@ -238,14 +251,14 @@ curl -H "X-API-Key: your-secret-key" \
      "http://localhost:8080/api/find?slug=about-us"
 ```
 
-#### 2. Get Special Pages
+#### 2. Get Special Pages Only
 ```bash
 # Get homepage, blog page, and privacy policy page IDs
 curl -H "X-API-Key: your-secret-key" \
      "http://localhost:8080/api/special-pages"
 ```
 
-#### 3. Get Site Information
+#### 3. Get Site Information Only
 ```bash
 # Get site settings including special page IDs
 curl -H "X-API-Key: your-secret-key" \
@@ -256,7 +269,7 @@ curl -H "X-API-Key: your-secret-key" \
 ```bash
 # Query specific WordPress site
 curl -H "X-API-Key: your-secret-key" \
-     "http://localhost:8080/api/special-pages?client=client1"
+     "http://localhost:8080/api/site-data?client=client1"
 ```
 
 ### Search Parameters
@@ -345,9 +358,91 @@ curl -H "X-API-Key: abc123" \
 
 ### 🆕 New Endpoints (v2.2)
 
+#### ⭐ GET /api/site-data (RECOMMENDED)
+
+Get **everything** you need about your WordPress site in a single optimized request.
+
+**Request:**
+```bash
+curl -H "X-API-Key: your-secret-key" \
+     "http://localhost:8080/api/site-data"
+```
+
+**Response:**
+```json
+{
+  "site": {
+    "title": "My WordPress Site",
+    "description": "Just another WordPress site",
+    "url": "https://yoursite.com",
+    "timezone": "America/New_York",
+    "language": "en-US",
+    "date_format": "F j, Y",
+    "time_format": "g:i a",
+    "show_on_front": "page",
+    "page_on_front": 5,
+    "page_for_posts": 8,
+    "posts_per_page": 10,
+    "default_category": 1,
+    "default_post_format": "0"
+  },
+  "pages": {
+    "homepage": {
+      "id": 5,
+      "title": "Home",
+      "slug": "home",
+      "url": "https://yoursite.com/",
+      "status": "publish",
+      "type": "page"
+    },
+    "blog_page": {
+      "id": 8,
+      "title": "Blog",
+      "slug": "blog",
+      "url": "https://yoursite.com/blog",
+      "status": "publish",
+      "type": "page"
+    },
+    "privacy_policy": {
+      "id": 3,
+      "title": "Privacy Policy",
+      "slug": "privacy-policy",
+      "url": "https://yoursite.com/privacy-policy",
+      "status": "publish",
+      "type": "page"
+    },
+    "_settings": {
+      "show_on_front": "page",
+      "posts_per_page": 10,
+      "default_category": 1
+    }
+  },
+  "_meta": {
+    "client": "default",
+    "endpoint": "/api/site-data",
+    "timestamp": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Why use this endpoint?**
+- ✅ **One request instead of two** - Get site info + special pages together
+- ✅ **Optimized performance** - Parallel fetching under the hood
+- ✅ **Complete data** - Everything you need to build navigation, footers, site maps
+- ✅ **Timestamp included** - Track when data was fetched
+- ✅ **Multi-client support** - Add `?client=client1` for different sites
+
+**Use Cases:**
+- Build complete site navigation in one API call
+- Initialize headless CMS with all site data
+- Create admin dashboards with full site configuration
+- Sync multiple WordPress sites efficiently
+
+---
+
 #### GET /api/special-pages
 
-Get all special WordPress pages with full details in one request.
+Get special WordPress pages only (if you don't need full site info).
 
 **Request:**
 ```bash
@@ -587,6 +682,10 @@ npm start
 ### v2.2.0 (Latest)
 
 #### Added
+- ⭐ **Unified HTTP Endpoint** - New `GET /api/site-data` endpoint (RECOMMENDED)
+  - Get site info + special pages in **one optimized call**
+  - Parallel fetching for maximum performance
+  - Includes timestamp for cache management
 - 🌐 **HTTP API for Special Pages** - New `GET /api/special-pages` endpoint
 - 🌐 **HTTP API for Site Info** - New `GET /api/site-info` endpoint
 - 🏠 **Special Pages Retrieval** - New `wp_get_special_pages` MCP tool
@@ -596,7 +695,8 @@ npm start
 - 📊 **Enhanced Site Info** - `wp_get_site_info` now includes `show_on_front`, `page_on_front`, `page_for_posts`, `posts_per_page`, and more
 
 #### Improved
-- HTTP API expanded from 1 endpoint to 3 endpoints
+- HTTP API expanded from 1 endpoint to **4 endpoints**
+- Reduced API calls: Get everything in one request with `/api/site-data`
 - More comprehensive site configuration data via HTTP
 - Better handling of special WordPress pages
 - Detailed page information with title, slug, URL, and status

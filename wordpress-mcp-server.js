@@ -557,10 +557,18 @@ const tools = [
     }
   },
 
-  // SITE INFO (2 endpoints - NEW!)
+  // SITE INFO (4 endpoints - NEW!)
   {
     name: 'wp_get_site_info',
-    description: 'Get WordPress site information and settings',
+    description: 'Get WordPress site information and settings including special page IDs',
+    inputSchema: {
+      type: 'object',
+      properties: {}
+    }
+  },
+  {
+    name: 'wp_get_special_pages',
+    description: 'Get special WordPress page IDs (homepage, blog page, privacy policy, etc.) with full page details',
     inputSchema: {
       type: 'object',
       properties: {}
@@ -576,9 +584,9 @@ const tools = [
   }
 ];
 
-// Unified search function for posts and pages
+// Universal search function - finds ANY content type in WordPress
 async function findContent(searchParams, clientConfig) {
-  const { slug, url, search } = searchParams;
+  const { slug, url, search, id } = searchParams;
 
   // Build WordPress API base URL for this client
   const baseURL = clientConfig.url.replace(/\/+$/, '');
@@ -611,16 +619,138 @@ async function findContent(searchParams, clientConfig) {
     return data;
   }
 
-  // Search in posts first
+  // If searching by ID, try direct lookup
+  if (id) {
+    // Try posts by ID
+    try {
+      const post = await wpRequestForClient(`/wp/v2/posts/${id}`);
+      if (post) {
+        return {
+          found: true,
+          type: 'post',
+          id: post.id,
+          title: post.title.rendered,
+          slug: post.slug,
+          content: post.content.rendered,
+          excerpt: post.excerpt?.rendered,
+          url: post.link,
+          date: post.date,
+          status: post.status
+        };
+      }
+    } catch (error) {
+      // Not a post, try pages
+    }
+
+    // Try pages by ID
+    try {
+      const page = await wpRequestForClient(`/wp/v2/pages/${id}`);
+      if (page) {
+        return {
+          found: true,
+          type: 'page',
+          id: page.id,
+          title: page.title.rendered,
+          slug: page.slug,
+          content: page.content.rendered,
+          url: page.link,
+          date: page.date,
+          status: page.status
+        };
+      }
+    } catch (error) {
+      // Not found by ID
+    }
+  }
+
+  // Extract search term
+  let searchSlug = slug;
+  if (url) {
+    const urlParts = url.split('/').filter(p => p);
+    searchSlug = urlParts[urlParts.length - 1];
+  }
+
+  // STEP 1: Check if it's a special page (homepage, blog, privacy policy)
+  if (searchSlug && !search) {
+    try {
+      const settings = await wpRequestForClient('/wp/v2/settings');
+      const specialPages = {};
+
+      // Check homepage
+      if (settings.show_on_front === 'page' && settings.page_on_front) {
+        try {
+          const homepage = await wpRequestForClient(`/wp/v2/pages/${settings.page_on_front}`);
+          if (homepage && (homepage.slug === searchSlug || searchSlug === 'home' || searchSlug === 'homepage')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'homepage',
+              id: homepage.id,
+              title: homepage.title.rendered,
+              slug: homepage.slug,
+              content: homepage.content.rendered,
+              url: homepage.link,
+              date: homepage.date,
+              status: homepage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+
+      // Check blog page
+      if (settings.page_for_posts) {
+        try {
+          const blogPage = await wpRequestForClient(`/wp/v2/pages/${settings.page_for_posts}`);
+          if (blogPage && (blogPage.slug === searchSlug || searchSlug === 'blog')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'blog_page',
+              id: blogPage.id,
+              title: blogPage.title.rendered,
+              slug: blogPage.slug,
+              content: blogPage.content.rendered,
+              url: blogPage.link,
+              date: blogPage.date,
+              status: blogPage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+
+      // Check privacy policy page
+      if (settings.wp_page_for_privacy_policy) {
+        try {
+          const privacyPage = await wpRequestForClient(`/wp/v2/pages/${settings.wp_page_for_privacy_policy}`);
+          if (privacyPage && (privacyPage.slug === searchSlug || searchSlug === 'privacy' || searchSlug === 'privacy-policy')) {
+            return {
+              found: true,
+              type: 'page',
+              specialType: 'privacy_policy',
+              id: privacyPage.id,
+              title: privacyPage.title.rendered,
+              slug: privacyPage.slug,
+              content: privacyPage.content.rendered,
+              url: privacyPage.link,
+              date: privacyPage.date,
+              status: privacyPage.status,
+              isSpecialPage: true
+            };
+          }
+        } catch (e) {}
+      }
+    } catch (error) {
+      console.error('Error checking special pages:', error.message);
+    }
+  }
+
+  // STEP 2: Search in standard posts and pages
   let params = new URLSearchParams({ per_page: '1' });
 
-  if (slug) {
-    params.append('slug', slug);
-  } else if (url) {
-    // Extract slug from URL
-    const urlParts = url.split('/').filter(p => p);
-    const possibleSlug = urlParts[urlParts.length - 1];
-    params.append('slug', possibleSlug);
+  if (searchSlug) {
+    params.append('slug', searchSlug);
   } else if (search) {
     params.append('search', search);
   }
@@ -637,7 +767,7 @@ async function findContent(searchParams, clientConfig) {
         title: post.title.rendered,
         slug: post.slug,
         content: post.content.rendered,
-        excerpt: post.excerpt.rendered,
+        excerpt: post.excerpt?.rendered,
         url: post.link,
         date: post.date,
         status: post.status
@@ -671,8 +801,8 @@ async function findContent(searchParams, clientConfig) {
   // Not found
   return {
     found: false,
-    message: 'Content not found in posts or pages',
-    searchParams
+    message: 'Content not found in posts, pages, or special pages',
+    searchParams: { slug: searchSlug, search, id }
   };
 }
 
@@ -1123,8 +1253,94 @@ async function executeTool(name, args) {
         timezone: settings.timezone,
         language: settings.language,
         date_format: settings.date_format,
-        time_format: settings.time_format
+        time_format: settings.time_format,
+        // Special page settings
+        show_on_front: settings.show_on_front, // 'posts' or 'page'
+        page_on_front: settings.page_on_front || 0, // Homepage page ID (0 if show_on_front is 'posts')
+        page_for_posts: settings.page_for_posts || 0, // Blog listing page ID
+        posts_per_page: settings.posts_per_page || 10,
+        default_category: settings.default_category || 1,
+        default_post_format: settings.default_post_format || '0'
       };
+    }
+
+    case 'wp_get_special_pages': {
+      const settings = await wpRequest('/wp/v2/settings');
+      const specialPages = {};
+
+      // Get homepage details if set to a static page
+      if (settings.show_on_front === 'page' && settings.page_on_front) {
+        try {
+          const homepage = await wpRequest(`/wp/v2/pages/${settings.page_on_front}`);
+          specialPages.homepage = {
+            id: homepage.id,
+            title: homepage.title.rendered,
+            slug: homepage.slug,
+            url: homepage.link,
+            status: homepage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.homepage = {
+            id: settings.page_on_front,
+            error: 'Page not found or not accessible'
+          };
+        }
+      } else {
+        specialPages.homepage = {
+          type: 'posts',
+          description: 'Homepage shows latest posts'
+        };
+      }
+
+      // Get blog listing page details if set
+      if (settings.page_for_posts) {
+        try {
+          const blogPage = await wpRequest(`/wp/v2/pages/${settings.page_for_posts}`);
+          specialPages.blog_page = {
+            id: blogPage.id,
+            title: blogPage.title.rendered,
+            slug: blogPage.slug,
+            url: blogPage.link,
+            status: blogPage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.blog_page = {
+            id: settings.page_for_posts,
+            error: 'Page not found or not accessible'
+          };
+        }
+      }
+
+      // Get privacy policy page if set
+      if (settings.wp_page_for_privacy_policy) {
+        try {
+          const privacyPage = await wpRequest(`/wp/v2/pages/${settings.wp_page_for_privacy_policy}`);
+          specialPages.privacy_policy = {
+            id: privacyPage.id,
+            title: privacyPage.title.rendered,
+            slug: privacyPage.slug,
+            url: privacyPage.link,
+            status: privacyPage.status,
+            type: 'page'
+          };
+        } catch (e) {
+          specialPages.privacy_policy = {
+            id: settings.wp_page_for_privacy_policy,
+            error: 'Page not found or not accessible'
+          };
+        }
+      }
+
+      // Add reading settings context
+      specialPages._settings = {
+        show_on_front: settings.show_on_front,
+        posts_per_page: settings.posts_per_page,
+        default_category: settings.default_category
+      };
+
+      return specialPages;
     }
 
     case 'wp_get_post_types': {
@@ -1161,12 +1377,12 @@ const server = http.createServer(async (req, res) => {
       const urlObj = new URL(req.url, `http://${req.headers.host}`);
       const params = Object.fromEntries(urlObj.searchParams);
 
-      const { slug, url, search, client } = params;
+      const { slug, url, search, id, client } = params;
 
-      if (!slug && !url && !search) {
+      if (!slug && !url && !search && !id) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({
-          error: 'Missing search parameter. Provide one of: slug, url, or search'
+          error: 'Missing search parameter. Provide one of: id, slug, url, or search'
         }));
       }
 
@@ -1189,8 +1405,8 @@ const server = http.createServer(async (req, res) => {
         }));
       }
 
-      // Perform the search
-      const result = await findContent({ slug, url, search }, clientConfig);
+      // Perform the universal search
+      const result = await findContent({ id, slug, url, search }, clientConfig);
 
       // Add client info to response
       const responseData = {
@@ -1213,10 +1429,162 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Handle GET /api/site-data endpoint (UNIFIED - Recommended!)
+  if (req.method === 'GET' && req.url.startsWith('/api/site-data')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call both endpoints in parallel for maximum efficiency
+      const [siteInfo, specialPages] = await Promise.all([
+        executeTool('wp_get_site_info', {}),
+        executeTool('wp_get_special_pages', {})
+      ]);
+
+      // Unified response with all site data
+      const responseData = {
+        site: siteInfo,
+        pages: specialPages,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/site-data',
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
+  // Handle GET /api/special-pages endpoint
+  if (req.method === 'GET' && req.url.startsWith('/api/special-pages')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call wp_get_special_pages
+      const result = await executeTool('wp_get_special_pages', {});
+
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/special-pages'
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
+  // Handle GET /api/site-info endpoint
+  if (req.method === 'GET' && req.url.startsWith('/api/site-info')) {
+    try {
+      // Check API Key
+      const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
+      if (API_KEY && apiKey !== API_KEY) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+      }
+
+      // Parse URL and query parameters for client selection
+      const urlObj = new URL(req.url, `http://${req.headers.host}`);
+      const params = Object.fromEntries(urlObj.searchParams);
+      const { client } = params;
+
+      // Get client configuration
+      const clientConfig = getClientConfig(client);
+
+      if (!clientConfig.url || !clientConfig.username || !clientConfig.password) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({
+          error: `Invalid client configuration for: ${client || 'default'}`
+        }));
+      }
+
+      // Call wp_get_site_info
+      const result = await executeTool('wp_get_site_info', {});
+
+      // Add client info to response
+      const responseData = {
+        ...result,
+        _meta: {
+          client: client || 'default',
+          endpoint: '/api/site-info'
+        }
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify(responseData, null, 2));
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({
+        error: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }));
+    }
+  }
+
   // Handle POST /mcp endpoint (existing MCP protocol)
   if (req.method !== 'POST' || req.url !== '/mcp') {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp or GET /api/find' }));
+    return res.end(JSON.stringify({ error: 'Not found. Use POST /mcp, GET /api/find, GET /api/site-data (recommended), GET /api/special-pages, or GET /api/site-info' }));
   }
 
   try {
@@ -1236,8 +1604,8 @@ const server = http.createServer(async (req, res) => {
           capabilities: { tools: {} },
           serverInfo: {
             name: 'WordPress MCP Server',
-            version: '2.1.0',
-            description: '35 WordPress REST API endpoints + HTTP GET API - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
+            version: '2.2.0',
+            description: '36 WordPress REST API endpoints + HTTP API with Special Pages - Posts, Pages, Media, Comments, Users, Taxonomy, Site Info'
           }
         }
       }));

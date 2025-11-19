@@ -193,18 +193,72 @@ function getClientId(req, url) {
 
 // מיפוי פעולות ל־REST endpoints
 const endpointMap = {
-  wp_create_post: { method: 'POST', path: '/wp-json/wp/v2/posts' },
-  wp_update_post: { method: 'POST', path: (args) => `/wp-json/wp/v2/posts/${args.id}?_method=PUT` },
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // POSTS (5 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   wp_get_posts: { method: 'GET', path: '/wp-json/wp/v2/posts' },
-  wp_delete_post: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/posts/${args.id}?force=true` },
-  wp_upload_media: { method: 'POST', path: '/wp-json/wp/v2/media' },
-  wp_update_media: { method: 'POST', path: (args) => `/wp-json/wp/v2/media/${args.id}?_method=PUT` },
-  wp_get_media: { method: 'GET', path: '/wp-json/wp/v2/media' },
-  wp_create_category: { method: 'POST', path: '/wp-json/wp/v2/categories' },
-  wp_get_categories: { method: 'GET', path: '/wp-json/wp/v2/categories' },
+  wp_get_post: { method: 'GET', path: (args) => `/wp-json/wp/v2/posts/${args.id}` },
+  wp_create_post: { method: 'POST', path: '/wp-json/wp/v2/posts' },
+  wp_update_post: { method: 'POST', path: (args) => `/wp-json/wp/v2/posts/${args.id}` },
+  wp_delete_post: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/posts/${args.id}?force=${args.force || false}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PAGES (5 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_pages: { method: 'GET', path: '/wp-json/wp/v2/pages' },
+  wp_get_page: { method: 'GET', path: (args) => `/wp-json/wp/v2/pages/${args.id}` },
   wp_create_page: { method: 'POST', path: '/wp-json/wp/v2/pages' },
-  wp_update_page: { method: 'POST', path: (args) => `/wp-json/wp/v2/pages/${args.id}?_method=PUT` },
-  wp_get_pages: { method: 'GET', path: '/wp-json/wp/v2/pages' }
+  wp_update_page: { method: 'POST', path: (args) => `/wp-json/wp/v2/pages/${args.id}` },
+  wp_delete_page: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/pages/${args.id}?force=${args.force || false}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MEDIA (5 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_media: { method: 'GET', path: '/wp-json/wp/v2/media' },
+  wp_get_media_item: { method: 'GET', path: (args) => `/wp-json/wp/v2/media/${args.id}` },
+  wp_upload_media: { method: 'POST', path: '/wp-json/wp/v2/media' },
+  wp_update_media: { method: 'POST', path: (args) => `/wp-json/wp/v2/media/${args.id}` },
+  wp_delete_media: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/media/${args.id}?force=${args.force || false}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // COMMENTS (5 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_comments: { method: 'GET', path: '/wp-json/wp/v2/comments' },
+  wp_get_comment: { method: 'GET', path: (args) => `/wp-json/wp/v2/comments/${args.id}` },
+  wp_create_comment: { method: 'POST', path: '/wp-json/wp/v2/comments' },
+  wp_update_comment: { method: 'POST', path: (args) => `/wp-json/wp/v2/comments/${args.id}` },
+  wp_delete_comment: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/comments/${args.id}?force=${args.force || false}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // USERS (3 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_users: { method: 'GET', path: '/wp-json/wp/v2/users' },
+  wp_get_user: { method: 'GET', path: (args) => `/wp-json/wp/v2/users/${args.id}` },
+  wp_get_current_user: { method: 'GET', path: '/wp-json/wp/v2/users/me' },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CUSTOM POST TYPES (3 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_custom_posts: { method: 'GET', path: (args) => `/wp-json/wp/v2/${args.post_type}` },
+  wp_get_custom_post: { method: 'GET', path: (args) => `/wp-json/wp/v2/${args.post_type}/${args.id}` },
+  wp_create_custom_post: { method: 'POST', path: (args) => `/wp-json/wp/v2/${args.post_type}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TAXONOMY (6 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_categories: { method: 'GET', path: '/wp-json/wp/v2/categories' },
+  wp_get_tags: { method: 'GET', path: '/wp-json/wp/v2/tags' },
+  wp_create_category: { method: 'POST', path: '/wp-json/wp/v2/categories' },
+  wp_create_tag: { method: 'POST', path: '/wp-json/wp/v2/tags' },
+  wp_update_category: { method: 'POST', path: (args) => `/wp-json/wp/v2/categories/${args.id}` },
+  wp_delete_category: { method: 'DELETE', path: (args) => `/wp-json/wp/v2/categories/${args.id}?force=${args.force || false}` },
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SITE INFO (3 endpoints)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  wp_get_site_info: { method: 'GET', path: '/wp-json/wp/v2/settings' },
+  wp_get_special_pages: { method: 'GET', path: '/wp-json/wp/v2/settings' },
+  wp_get_post_types: { method: 'GET', path: '/wp-json/wp/v2/types' }
 };
 
 // פונקציית קריאה ל־WordPress

@@ -1161,17 +1161,6 @@ async function executeTool(name, args) {
       return { posts: posts.map(p => ({ id: p.id, title: p.title?.rendered || 'Untitled', link: p.link })) };
     }
 
-    case 'wp_get_custom_post': {
-      const post = await wpRequest(`/wp/v2/${args.post_type}/${args.id}`);
-      return {
-        id: post.id,
-        title: post.title?.rendered || 'Untitled',
-        content: post.content?.rendered || '',
-        link: post.link,
-        meta: post.meta
-      };
-    }
-
     case 'wp_create_custom_post': {
       const postData = {
         title: args.title,
@@ -1179,29 +1168,35 @@ async function executeTool(name, args) {
         status: args.status || 'draft'
       };
       
+      // Add optional fields
       if (args.excerpt) postData.excerpt = args.excerpt;
       if (args.slug) postData.slug = args.slug;
       
-      // יצירת הפוסט
+      // ⚠️ זה הקטע הקריטי - meta צריך להישלח בפורמט מיוחד
+      if (args.meta) {
+        postData.meta = {};
+        // WordPress REST API דורש את שמות השדות המדויקים
+        Object.keys(args.meta).forEach(key => {
+          postData.meta[key] = args.meta[key];
+        });
+      }
+      
+      console.log('📝 Creating custom post:', args.post_type);
+      console.log('📦 Post data:', JSON.stringify(postData, null, 2));
+      
       const post = await wpRequest(`/wp/v2/${args.post_type}`, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
       
-      // עכשיו עדכן את המטא בנפרד
-      if (args.meta && typeof args.meta === 'object') {
-        const metaData = { meta: args.meta };
-        
-        await wpRequest(`/wp/v2/${args.post_type}/${post.id}`, {
-          method: 'POST',
-          body: JSON.stringify(metaData)
-        });
-      }
+      console.log('✅ Post created:', post.id);
+      console.log('📋 Response meta:', post.meta ? 'included' : 'MISSING!');
       
       return { 
         id: post.id, 
         link: post.link, 
-        status: post.status
+        status: post.status,
+        meta: post.meta || null
       };
     }
 

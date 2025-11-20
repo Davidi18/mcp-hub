@@ -1168,35 +1168,48 @@ async function executeTool(name, args) {
         status: args.status || 'draft'
       };
       
-      // Add optional fields
       if (args.excerpt) postData.excerpt = args.excerpt;
       if (args.slug) postData.slug = args.slug;
       
-      // ⚠️ זה הקטע הקריטי - meta צריך להישלח בפורמט מיוחד
-      if (args.meta) {
-        postData.meta = {};
-        // WordPress REST API דורש את שמות השדות המדויקים
-        Object.keys(args.meta).forEach(key => {
-          postData.meta[key] = args.meta[key];
-        });
-      }
+      console.log('📝 Creating post WITHOUT meta first...');
       
-      console.log('📝 Creating custom post:', args.post_type);
-      console.log('📦 Post data:', JSON.stringify(postData, null, 2));
-      
+      // Step 1: Create the post
       const post = await wpRequest(`/wp/v2/${args.post_type}`, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
       
       console.log('✅ Post created:', post.id);
-      console.log('📋 Response meta:', post.meta ? 'included' : 'MISSING!');
+      
+      // Step 2: Update meta fields ONE BY ONE
+      if (args.meta && typeof args.meta === 'object') {
+        console.log('📋 Now updating meta fields...');
+        
+        for (const [key, value] of Object.entries(args.meta)) {
+          try {
+            const metaUpdate = { meta: { [key]: value } };
+            
+            await wpRequest(`/wp/v2/${args.post_type}/${post.id}`, {
+              method: 'POST',
+              body: JSON.stringify(metaUpdate)
+            });
+            
+            console.log(`  ✓ Updated ${key}`);
+          } catch (err) {
+            console.log(`  ✗ Failed ${key}:`, err.message);
+          }
+        }
+      }
+      
+      // Step 3: Fetch the post again to verify
+      const finalPost = await wpRequest(`/wp/v2/${args.post_type}/${post.id}`);
+      console.log('📊 Final meta:', finalPost.meta);
       
       return { 
         id: post.id, 
         link: post.link, 
         status: post.status,
-        meta: post.meta || null
+        meta: finalPost.meta
       };
     }
 

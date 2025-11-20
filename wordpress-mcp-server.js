@@ -1178,13 +1178,31 @@ async function executeTool(name, args) {
         content: args.content,
         status: args.status || 'draft'
       };
-      if (args.meta) postData.meta = args.meta;
       
+      if (args.excerpt) postData.excerpt = args.excerpt;
+      if (args.slug) postData.slug = args.slug;
+      
+      // יצירת הפוסט
       const post = await wpRequest(`/wp/v2/${args.post_type}`, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
-      return { id: post.id, link: post.link, status: post.status };
+      
+      // עכשיו עדכן את המטא בנפרד
+      if (args.meta && typeof args.meta === 'object') {
+        const metaData = { meta: args.meta };
+        
+        await wpRequest(`/wp/v2/${args.post_type}/${post.id}`, {
+          method: 'POST',
+          body: JSON.stringify(metaData)
+        });
+      }
+      
+      return { 
+        id: post.id, 
+        link: post.link, 
+        status: post.status
+      };
     }
 
     // TAXONOMY

@@ -1165,52 +1165,24 @@ async function executeTool(name, args) {
       const postData = {
         title: args.title,
         content: args.content,
-        status: args.status || 'draft'
+        status: args.status || 'draft',
+        fields: {}  // ← זה המפתח!
       };
       
       if (args.excerpt) postData.excerpt = args.excerpt;
       if (args.slug) postData.slug = args.slug;
       
-      console.log('📝 Creating post WITHOUT meta first...');
+      // ACF דורש את השדות תחת "fields" או "acf"
+      if (args.meta) {
+        postData.acf = args.meta;  // ← או postData.fields = args.meta
+      }
       
-      // Step 1: Create the post
       const post = await wpRequest(`/wp/v2/${args.post_type}`, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
       
-      console.log('✅ Post created:', post.id);
-      
-      // Step 2: Update meta fields ONE BY ONE
-      if (args.meta && typeof args.meta === 'object') {
-        console.log('📋 Now updating meta fields...');
-        
-        for (const [key, value] of Object.entries(args.meta)) {
-          try {
-            const metaUpdate = { meta: { [key]: value } };
-            
-            await wpRequest(`/wp/v2/${args.post_type}/${post.id}`, {
-              method: 'POST',
-              body: JSON.stringify(metaUpdate)
-            });
-            
-            console.log(`  ✓ Updated ${key}`);
-          } catch (err) {
-            console.log(`  ✗ Failed ${key}:`, err.message);
-          }
-        }
-      }
-      
-      // Step 3: Fetch the post again to verify
-      const finalPost = await wpRequest(`/wp/v2/${args.post_type}/${post.id}`);
-      console.log('📊 Final meta:', finalPost.meta);
-      
-      return { 
-        id: post.id, 
-        link: post.link, 
-        status: post.status,
-        meta: finalPost.meta
-      };
+      return { id: post.id, link: post.link };
     }
 
     // TAXONOMY

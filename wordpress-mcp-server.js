@@ -1166,23 +1166,74 @@ async function executeTool(name, args) {
         title: args.title,
         content: args.content,
         status: args.status || 'draft',
-        fields: {}  // ← זה המפתח!
+        fields: {}
       };
       
       if (args.excerpt) postData.excerpt = args.excerpt;
       if (args.slug) postData.slug = args.slug;
       
-      // ACF דורש את השדות תחת "fields" או "acf"
+      // Separate podcast_schema from other meta fields
+      let podcastSchema = null;
+      const acfFields = {};
+      
       if (args.meta) {
-        postData.acf = args.meta;  // ← או postData.fields = args.meta
+        // Extract podcast_schema separately
+        if (args.meta.podcast_schema) {
+          podcastSchema = args.meta.podcast_schema;
+          console.log('📊 Podcast schema detected, will save separately');
+        }
+        
+        // Keep all other meta fields for ACF
+        Object.keys(args.meta).forEach(key => {
+          if (key !== 'podcast_schema') {
+            acfFields[key] = args.meta[key];
+          }
+        });
+        
+        // Set ACF fields if any exist
+        if (Object.keys(acfFields).length > 0) {
+          postData.acf = acfFields;
+        }
       }
       
+      // Create the post
       const post = await wpRequest(`/wp/v2/${args.post_type}`, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
       
-      return { id: post.id, link: post.link };
+      console.log(`✅ Post created: ID ${post.id}`);
+      
+      // Save podcast schema as custom meta field if present
+      if (podcastSchema && post.id) {
+        try {
+          // Validate that it's valid JSON
+          if (typeof podcastSchema === 'string') {
+            JSON.parse(podcastSchema); // Just to validate
+          }
+          
+          // Update post with meta field
+          const metaUpdate = await wpRequest(`/wp/v2/${args.post_type}/${post.id}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              meta: {
+                _podcast_schema_json: podcastSchema
+              }
+            })
+          });
+          
+          console.log('📊 Podcast schema saved successfully');
+        } catch (error) {
+          console.error('❌ Error saving podcast schema:', error.message);
+          // Don't fail the whole operation if schema save fails
+        }
+      }
+      
+      return { 
+        id: post.id, 
+        link: post.link,
+        schema_saved: !!podcastSchema
+      };
     }
 
     // TAXONOMY
